@@ -12,6 +12,7 @@ class AuthMaterial:
     access_token: str | None
     refresh_token: str | None
     raw_auth_hash: str
+    openai_account_id: str | None = None
 
 
 @dataclass

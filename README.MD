@@ -195,8 +195,13 @@ Enable explicitly:
 ```bash
 codex-workspaces config set experimental_private_api.enabled true
 codex-workspaces config set experimental_private_api.quota_enabled true
-codex-workspaces config set experimental_private_api.refresh_enabled true
 ```
+
+The current endpoint fields are:
+
+- `experimental_private_api.base_url` defaults to `https://chatgpt.com`
+- `experimental_private_api.quota_endpoint` defaults to `/backend-api/wham/usage`
+- `experimental_private_api.account_endpoint` defaults to an empty string
 
 Query current account quota:
 
@@ -226,6 +231,8 @@ codex-workspaces accounts refresh acct_work
 codex-workspaces accounts refresh --all --json
 ```
 
+Refresh remains disabled by default. The current `account_endpoint` is not the Codex responses API; do not point it at the responses endpoint unless the provider logic is updated to support that POST-based flow.
+
 Realtime quota uses explicit experimental configuration, timeout, serial account iteration, and a local TTL cache under `~/.codex-workspaces/cache/quota/`. The cache stores quota summaries and auth hashes only; it does not store tokens, cookies, authorization headers, or raw `auth.json`.
 
 `stats` and `quota` are different: `stats` is local historical usage from SQLite, while `quota` is a realtime remote lookup. Quota failures do not affect local workspace/account switching.
@@ -246,6 +253,7 @@ Manage account metadata and snapshots:
 ```bash
 codex-workspaces accounts note acct_research "lab account"
 codex-workspaces accounts info acct_research
+codex-workspaces accounts info "$(codex-workspaces accounts current --id)"
 codex-workspaces accounts rename acct_research acct_lab
 codex-workspaces accounts delete acct_lab --force
 ```

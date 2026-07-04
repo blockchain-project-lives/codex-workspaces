@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import base64
 import json
 import socket
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime, timedelta, timezone
 from typing import Protocol
 from urllib.parse import urljoin
 
@@ -67,10 +69,14 @@ class ConfiguredHttpPrivateApiProvider:
     def request_json(self, endpoint: str, auth: AuthMaterial) -> dict:
         if not auth.access_token:
             raise PrivateApiAuthError("missing access token")
+        if not auth.openai_account_id:
+            raise PrivateApiAuthError("missing OpenAI account id in auth.json tokens.account_id")
+        ensure_access_token_fresh(auth.access_token)
         request = urllib.request.Request(urljoin(self.base_url.rstrip("/") + "/", endpoint.lstrip("/")))
         request.add_header("User-Agent", self.user_agent)
         request.add_header("Accept", "application/json")
         request.add_header("Authorization", "Bearer " + auth.access_token)
+        request.add_header("OpenAI-Account-Id", auth.openai_account_id)
         attempts = 0
         while True:
             try:
@@ -82,7 +88,7 @@ class ConfiguredHttpPrivateApiProvider:
                 return data
             except urllib.error.HTTPError as exc:
                 if exc.code == 401:
-                    raise PrivateApiAuthError("unauthorized") from exc
+                    raise PrivateApiAuthError("unauthorized; run codex login or an official codex command to refresh auth") from exc
                 if exc.code == 403:
                     raise PrivateApiForbiddenError("forbidden") from exc
                 if exc.code == 429 and attempts < 1:
@@ -100,7 +106,53 @@ class ConfiguredHttpPrivateApiProvider:
                 raise PrivateApiUnsupportedResponseError("response is not valid JSON") from exc
 
 
+def ensure_access_token_fresh(access_token: str) -> None:
+    expires_at = jwt_exp(access_token)
+    if expires_at is None:
+        return
+    if expires_at <= time.time() + 60:
+        raise PrivateApiAuthError("access token expired; run codex login or an official codex command to refresh auth")
+
+
+def jwt_exp(access_token: str) -> float | None:
+    parts = access_token.split(".")
+    if len(parts) < 2:
+        return None
+    payload = parts[1]
+    payload += "=" * (-len(payload) % 4)
+    try:
+        data = json.loads(base64.urlsafe_b64decode(payload.encode("ascii")).decode("utf-8"))
+    except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    exp = data.get("exp")
+    if isinstance(exp, (int, float)):
+        return float(exp)
+    return None
+
+
 def quota_from_response(data: dict) -> QuotaInfo:
+    rate_limit = data.get("rate_limit")
+    if isinstance(rate_limit, dict) and isinstance(rate_limit.get("primary_window"), dict):
+        primary_window = rate_limit["primary_window"]
+        used_percent = first_number(primary_window, "used_percent", "usedPercent", "used_pct", "usage_percent")
+        remaining_percent = max(0.0, 100.0 - used_percent) if used_percent is not None else None
+        limit_reached = bool(rate_limit.get("limit_reached"))
+        allowed = rate_limit.get("allowed")
+        status = "ok"
+        if limit_reached:
+            status = "limit_reached"
+        elif allowed is False:
+            status = "not_allowed"
+        return QuotaInfo(
+            status=status,
+            used_percent=used_percent,
+            remaining_percent=remaining_percent,
+            reset_at=normalize_reset_at(primary_window.get("reset_at"))
+            or reset_after_to_iso(first_number(primary_window, "reset_after_seconds", "resetAfterSeconds")),
+            window_duration_mins=seconds_to_minutes(first_number(primary_window, "limit_window_seconds", "limitWindowSeconds")),
+            plan=wham_plan(data.get("credits")),
+        )
+
     quota_data = data.get("quota") if isinstance(data.get("quota"), dict) else data
     used_percent = first_number(quota_data, "used_percent", "usedPercent", "used_pct", "usage_percent")
     remaining_percent = first_number(quota_data, "remaining_percent", "remainingPercent", "remaining_pct")
@@ -120,6 +172,39 @@ def quota_from_response(data: dict) -> QuotaInfo:
         window_duration_mins=first_int(quota_data, "window_duration_mins", "windowDurationMins", "window_mins"),
         plan=pick(quota_data, "plan", "tier", "subscription"),
     )
+
+
+def normalize_reset_at(value) -> str | None:
+    if isinstance(value, str) and value:
+        return value
+    if isinstance(value, (int, float)):
+        try:
+            return datetime.fromtimestamp(float(value), tz=timezone.utc).isoformat()
+        except (OSError, OverflowError, ValueError):
+            return str(value)
+    return None
+
+
+def seconds_to_minutes(value: float | None) -> int | None:
+    if value is None:
+        return None
+    return int(value / 60)
+
+
+def reset_after_to_iso(value: float | None) -> str | None:
+    if value is None:
+        return None
+    return (datetime.now(timezone.utc) + timedelta(seconds=value)).isoformat()
+
+
+def wham_plan(credits) -> str | None:
+    if not isinstance(credits, dict):
+        return None
+    if credits.get("unlimited") is True:
+        return "unlimited"
+    if credits.get("balance") is not None:
+        return "credits"
+    return None
 
 
 def pick(data: dict, *keys: str) -> str | None:

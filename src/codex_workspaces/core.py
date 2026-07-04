@@ -22,7 +22,16 @@ from .errors import CodexWorkspacesError
 from .platforms import SystemPlatform
 from .private_api import AccountRemoteInfo, AuthMaterial, ConfiguredHttpPrivateApiProvider, PrivateApiProvider, QuotaInfo
 from .private_api.auth import extract_auth_material
-from .private_api.errors import PrivateApiDisabledError, PrivateApiError
+from .private_api.errors import (
+    PrivateApiAuthError,
+    PrivateApiDisabledError,
+    PrivateApiError,
+    PrivateApiForbiddenError,
+    PrivateApiNetworkError,
+    PrivateApiRateLimitedError,
+    PrivateApiUnsupportedResponseError,
+    redact_sensitive_text,
+)
 from .store import AccountMeta, WorkspaceMeta, WorkspaceStore, auth_hash, chmod_best_effort, copy_auth, iso_now, read_json, write_json_atomic
 from .stats import ModelUsage, StatsBundle, StatsError, WorkspaceStats, combine_workspace_stats, compute_workspace_stats
 
@@ -419,6 +428,11 @@ class WorkspaceManager:
         defaults = self.default_private_api_config()
         for key, value in defaults.items():
             private.setdefault(key, value)
+        if private.get("provider") == "codex":
+            if not private.get("base_url"):
+                private["base_url"] = defaults["base_url"]
+            if not private.get("quota_endpoint"):
+                private["quota_endpoint"] = defaults["quota_endpoint"]
         return data
 
     def write_tool_config(self, data: dict) -> None:
@@ -430,8 +444,8 @@ class WorkspaceManager:
             "quota_enabled": False,
             "refresh_enabled": False,
             "provider": "codex",
-            "base_url": "",
-            "quota_endpoint": "",
+            "base_url": "https://chatgpt.com",
+            "quota_endpoint": "/backend-api/wham/usage",
             "account_endpoint": "",
             "timeout_seconds": 10,
             "rate_limit_per_minute": 20,
@@ -527,6 +541,116 @@ class WorkspaceManager:
             timeout_seconds=int(settings.get("timeout_seconds") or 10),
             user_agent=f"codex-workspaces/{self.tool_version()} experimental-private-api",
         )
+
+    def ensure_quota_endpoint_configured(self, settings: dict) -> None:
+        if self.private_api_provider is None and not settings.get("quota_endpoint"):
+            raise PrivateApiUnsupportedResponseError("quota endpoint is not configured")
+
+    def private_api_error_payload(self, exc: Exception) -> dict[str, object]:
+        if isinstance(exc, PrivateApiDisabledError):
+            error_type = "disabled"
+        elif isinstance(exc, PrivateApiAuthError):
+            error_type = "auth_error"
+        elif isinstance(exc, PrivateApiRateLimitedError):
+            error_type = "rate_limited"
+        elif isinstance(exc, PrivateApiForbiddenError):
+            error_type = "forbidden"
+        elif isinstance(exc, PrivateApiUnsupportedResponseError):
+            error_type = "unsupported_response"
+        elif isinstance(exc, PrivateApiNetworkError):
+            error_type = "network_error"
+        elif isinstance(exc, CodexWorkspacesError) and (
+            "experimental private API features are disabled" in str(exc) or "private API 功能未开启" in str(exc)
+        ):
+            error_type = "disabled"
+        else:
+            error_type = "internal_error"
+        return {"type": error_type, "message": redact_sensitive_text(str(exc))}
+
+    def quota_list_status_from_error(self, exc: Exception) -> str:
+        payload = self.private_api_error_payload(exc)
+        error_type = str(payload["type"])
+        message = str(payload["message"])
+        if error_type == "unsupported_response" and "quota endpoint is not configured" in message:
+            return "not-configured"
+        return {
+            "auth_error": "auth-error",
+            "rate_limited": "rate-limited",
+            "network_error": "network-error",
+            "unsupported_response": "error",
+            "internal_error": "error",
+        }.get(error_type, error_type.replace("_", "-"))
+
+    def format_private_api_error(self, exc: Exception) -> str:
+        payload = self.private_api_error_payload(exc)
+        error_type = str(payload["type"])
+        message = str(payload["message"])
+        if error_type == "disabled":
+            return "\n".join(
+                [
+                    "ERROR: experimental private API features are disabled.",
+                    "",
+                    "Enable explicitly:",
+                    "  codex-workspaces config set experimental_private_api.enabled true",
+                    "  codex-workspaces config set experimental_private_api.quota_enabled true",
+                ]
+            )
+        if error_type == "unsupported_response" and "quota endpoint is not configured" in message:
+            return "\n".join(
+                [
+                    "ERROR: realtime quota is not configured.",
+                    "",
+                    message,
+                    "",
+                    "Hint:",
+                    "  Configure experimental_private_api.quota_endpoint, or disable quota:",
+                    "  codex-workspaces config set experimental_private_api.quota_enabled false",
+                ]
+            )
+        titles = {
+            "auth_error": "ERROR: realtime quota authentication failed.",
+            "forbidden": "ERROR: realtime quota access was forbidden.",
+            "rate_limited": "ERROR: realtime quota is rate limited.",
+            "network_error": "ERROR: realtime quota request failed.",
+            "unsupported_response": "ERROR: realtime quota response is unsupported.",
+        }
+        return "\n".join(
+            [
+                titles.get(error_type, "ERROR: realtime quota failed."),
+                "",
+                message,
+                "",
+                "Hint:",
+                "  Check experimental_private_api settings, your account auth, or try again later.",
+            ]
+        )
+
+    def render_private_api_error(
+        self,
+        exc: Exception,
+        *,
+        json_output: bool,
+        account_id: Optional[str],
+        workspace: Optional[str],
+    ) -> int:
+        payload = self.private_api_error_payload(exc)
+        if json_output:
+            self.info(
+                json.dumps(
+                    {
+                        "status": "error",
+                        "account": account_id,
+                        "workspace": workspace,
+                        "error": payload,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
+        else:
+            self.info(self.format_private_api_error(exc))
+        return 2
 
     def show_stats(
         self,
@@ -1539,12 +1663,29 @@ class WorkspaceManager:
                 f"{(quota.plan or account.plan or '-'): <7} {self.percent_text(quota.used_percent):<8} {reset_at:<17} {status:<10} {quota.source}"
             )
 
-    def accounts_current(self) -> None:
+    def accounts_current(self, *, id_only: bool = False, json_output: bool = False) -> None:
         current = self.current_target()
         if current.kind != "target" or current.path is None:
             self.fail("当前工作区不存在。", "Current workspace does not exist.")
         name = self.current_name(current.path) or "current"
         meta = self.store.ensure_workspace_meta(name, current.path)
+        if id_only:
+            self.info(meta.active_account_id or "")
+            return
+        if json_output:
+            self.info(
+                json.dumps(
+                    {
+                        "workspace": name,
+                        "active_account_id": meta.active_account_id,
+                        "default_account_id": meta.default_account_id,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
+            return
         self.info(f"{name}: active={meta.active_account_id or '-'} default={meta.default_account_id or '-'}")
 
     def accounts_info(self, account: str) -> None:
@@ -1658,6 +1799,7 @@ class WorkspaceManager:
 
     def get_account_quota(self, account_id: str, *, no_cache: bool = False) -> QuotaInfo:
         settings = self.ensure_private_api_enabled("quota")
+        self.ensure_quota_endpoint_configured(settings)
         auth_material = self.account_auth_material(account_id)
         ttl = int(settings.get("cache_ttl_seconds") or 300)
         if not no_cache:
@@ -1692,22 +1834,39 @@ class WorkspaceManager:
                 return QuotaInfo(status="disabled", error=str(exc), source="disabled")
             return QuotaInfo(status="no-auth", error=str(exc), source="local")
         except PrivateApiError as exc:
-            return QuotaInfo(status="error", error=str(exc) if verbose else None, source="private-api")
+            return QuotaInfo(status=self.quota_list_status_from_error(exc), error=str(exc) if verbose else None, source="private-api")
+        except Exception as exc:
+            return QuotaInfo(
+                status=self.quota_list_status_from_error(exc),
+                error=redact_sensitive_text(str(exc)) if verbose else None,
+                source="private-api",
+            )
 
-    def show_quota(self, *, json_output: bool = False, no_cache: bool = False) -> None:
-        workspace, _, meta = self.current_workspace_account()
-        account_id = meta.active_account_id or meta.default_account_id
-        assert account_id is not None
-        quota = self.get_account_quota(account_id, no_cache=no_cache)
-        account_meta = self.store.read_account_meta(account_id) if self.store.account_meta_path(account_id).is_file() else None
-        self.render_quota(workspace, account_id, quota, account_meta, json_output=json_output)
+    def show_quota(self, *, json_output: bool = False, no_cache: bool = False) -> int:
+        workspace = None
+        account_id = None
+        try:
+            workspace, _, meta = self.current_workspace_account()
+            account_id = meta.active_account_id or meta.default_account_id
+            assert account_id is not None
+            quota = self.get_account_quota(account_id, no_cache=no_cache)
+            account_meta = self.store.read_account_meta(account_id) if self.store.account_meta_path(account_id).is_file() else None
+            self.render_quota(workspace, account_id, quota, account_meta, json_output=json_output)
+            return 0
+        except Exception as exc:
+            return self.render_private_api_error(exc, json_output=json_output, account_id=account_id, workspace=workspace)
 
-    def accounts_quota(self, account: str, *, json_output: bool = False, no_cache: bool = False) -> None:
-        account_id = self.account_id_from_input(account)
-        if not self.store.account_meta_path(account_id).is_file():
-            self.fail(f"账号不存在: {account_id}", f"Account not found: {account_id}")
-        quota = self.get_account_quota(account_id, no_cache=no_cache)
-        self.render_quota(None, account_id, quota, self.store.read_account_meta(account_id), json_output=json_output)
+    def accounts_quota(self, account: str, *, json_output: bool = False, no_cache: bool = False) -> int:
+        account_id = None
+        try:
+            account_id = self.account_id_from_input(account)
+            if not self.store.account_meta_path(account_id).is_file():
+                self.fail(f"账号不存在: {account_id}", f"Account not found: {account_id}")
+            quota = self.get_account_quota(account_id, no_cache=no_cache)
+            self.render_quota(None, account_id, quota, self.store.read_account_meta(account_id), json_output=json_output)
+            return 0
+        except Exception as exc:
+            return self.render_private_api_error(exc, json_output=json_output, account_id=account_id, workspace=None)
 
     def render_quota(self, workspace: Optional[str], account_id: str, quota: QuotaInfo, account_meta: Optional[AccountMeta], *, json_output: bool) -> None:
         payload = {
@@ -2806,7 +2965,7 @@ def usage(lang: str) -> str:
       迁移旧 ~/.codex-<工作区名> 目录，并可导入旧 ~/.codex-accounts。
 
   codex-workspaces accounts list
-  codex-workspaces accounts current
+  codex-workspaces accounts current [--id|--json]
   codex-workspaces accounts info <账号>
   codex-workspaces accounts init <账号>
   codex-workspaces accounts save <账号>
@@ -2910,7 +3069,7 @@ Usage:
       Migrate legacy ~/.codex-<workspace> directories and optionally import old ~/.codex-accounts.
 
   codex-workspaces accounts list
-  codex-workspaces accounts current
+  codex-workspaces accounts current [--id|--json]
   codex-workspaces accounts info <account>
   codex-workspaces accounts init <account>
   codex-workspaces accounts save <account>

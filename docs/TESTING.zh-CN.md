@@ -130,7 +130,7 @@ CODEX_WORKSPACES_LINK="$tmp_home/.codex" \
 CODEX_WORKSPACES_ROOT="$tmp_home/.codex-workspaces" \
 codex-workspaces config set experimental_private_api.quota_enabled true
 
-# 需要配置实际 provider endpoint 后才会真实请求；无 endpoint 时会安全失败。
+# 默认内置 chatgpt.com WHAM quota endpoint；开启后会真实请求实验性 private API。
 # CODEX_WORKSPACES_LINK="$tmp_home/.codex" \
 # CODEX_WORKSPACES_ROOT="$tmp_home/.codex-workspaces" \
 # codex-workspaces quota --json

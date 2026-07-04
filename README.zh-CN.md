@@ -195,8 +195,13 @@ codex-workspaces stats work --days 14
 ```bash
 codex-workspaces config set experimental_private_api.enabled true
 codex-workspaces config set experimental_private_api.quota_enabled true
-codex-workspaces config set experimental_private_api.refresh_enabled true
 ```
+
+当前 endpoint 配置字段是：
+
+- `experimental_private_api.base_url` 默认 `https://chatgpt.com`
+- `experimental_private_api.quota_endpoint` 默认 `/backend-api/wham/usage`
+- `experimental_private_api.account_endpoint` 默认空字符串
 
 查询当前账号额度：
 
@@ -226,6 +231,8 @@ codex-workspaces accounts refresh acct_work
 codex-workspaces accounts refresh --all --json
 ```
 
+refresh 当前仍默认关闭。当前 `account_endpoint` 不是 Codex responses API；除非 provider 实现了 POST responses 流程，否则不要把它指向 responses endpoint。
+
 实时额度能力使用显式实验配置、请求超时、串行账号遍历和本地 TTL 缓存，缓存目录为 `~/.codex-workspaces/cache/quota/`。缓存只保存额度摘要和 auth hash，不保存 token、cookie、authorization header 或原始 `auth.json`。
 
 `stats` 和 `quota` 不同：`stats` 是本地 SQLite 历史统计，`quota` 是实时远端查询。额度查询失败不会影响本地 workspace/account 切换。
@@ -246,6 +253,7 @@ codex-workspaces accounts restore-default
 ```bash
 codex-workspaces accounts note acct_research "实验室账号"
 codex-workspaces accounts info acct_research
+codex-workspaces accounts info "$(codex-workspaces accounts current --id)"
 codex-workspaces accounts rename acct_research acct_lab
 codex-workspaces accounts delete acct_lab --force
 ```

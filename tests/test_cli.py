@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import urllib.error
 from pathlib import Path
 
 import pytest
@@ -10,7 +11,8 @@ from codex_workspaces.config import Config
 from codex_workspaces.cli import run
 from codex_workspaces.core import WorkspaceManager
 from codex_workspaces.errors import CodexWorkspacesError
-from test_core import FakePlatform, MockPrivateApiProvider
+from codex_workspaces.private_api.errors import PrivateApiNetworkError, PrivateApiUnsupportedResponseError
+from test_core import FakePlatform, MockPrivateApiProvider, chatgpt_auth_json
 
 
 def manager_for(tmp_path: Path, private_api_provider=None) -> WorkspaceManager:
@@ -34,6 +36,17 @@ def manager_for(tmp_path: Path, private_api_provider=None) -> WorkspaceManager:
         lang="en",
     )
     return WorkspaceManager(config, FakePlatform(), io.StringIO(), io.StringIO(), private_api_provider=private_api_provider)
+
+
+def prepare_quota_account(manager: WorkspaceManager) -> None:
+    assert run(["init", "work"], manager) == 0
+    assert run(["work", "--no-stop", "--no-start"], manager) == 0
+    (manager.workspace_dir("work") / "auth.json").write_text(
+        chatgpt_auth_json(),
+        encoding="utf-8",
+    )
+    assert run(["accounts", "save", "work"], manager) == 0
+    assert run(["accounts", "set-default", "work", "work", "--activate"], manager) == 0
 
 
 class TestCliDispatch:
@@ -136,6 +149,36 @@ class TestCliDispatch:
         assert "active=acct_work default=acct_work" in output
         assert "auth_exists: yes" in output
 
+    def test_accounts_current_id_json_and_info_composition(self, tmp_path: Path) -> None:
+        manager = manager_for(tmp_path)
+
+        assert run(["init", "work"], manager) == 0
+        assert run(["work", "--no-stop", "--no-start"], manager) == 0
+        (manager.workspace_dir("work") / "auth.json").write_text(chatgpt_auth_json(), encoding="utf-8")
+        assert run(["accounts", "save", "work"], manager) == 0
+        assert run(["accounts", "set-default", "work", "work", "--activate"], manager) == 0
+        manager.stdout.seek(0)
+        manager.stdout.truncate(0)
+
+        assert run(["accounts", "current", "--id"], manager) == 0
+        account_id = manager.stdout.getvalue().strip()
+        assert account_id == "acct_work"
+
+        manager.stdout.seek(0)
+        manager.stdout.truncate(0)
+        assert run(["accounts", "current", "--json"], manager) == 0
+        payload = json.loads(manager.stdout.getvalue())
+        assert payload == {
+            "active_account_id": "acct_work",
+            "default_account_id": "acct_work",
+            "workspace": "work",
+        }
+
+        manager.stdout.seek(0)
+        manager.stdout.truncate(0)
+        assert run(["accounts", "info", account_id], manager) == 0
+        assert "Account: acct_work" in manager.stdout.getvalue()
+
     def test_accounts_refresh_export_and_import_dispatch(self, tmp_path: Path) -> None:
         manager = manager_for(tmp_path)
 
@@ -159,11 +202,7 @@ class TestCliDispatch:
         provider = MockPrivateApiProvider()
         manager = manager_for(tmp_path, private_api_provider=provider)
 
-        assert run(["init", "work"], manager) == 0
-        assert run(["work", "--no-stop", "--no-start"], manager) == 0
-        (manager.workspace_dir("work") / "auth.json").write_text('{"access_token":"secret-token"}\n', encoding="utf-8")
-        assert run(["accounts", "save", "work"], manager) == 0
-        assert run(["accounts", "set-default", "work", "work", "--activate"], manager) == 0
+        prepare_quota_account(manager)
         assert run(["config", "set", "experimental_private_api.enabled", "true"], manager) == 0
         assert run(["config", "set", "experimental_private_api.quota_enabled", "true"], manager) == 0
         assert run(["quota", "--json"], manager) == 0
@@ -173,6 +212,132 @@ class TestCliDispatch:
         output = manager.stdout.getvalue()
         assert "secret-token" not in output
         assert provider.quota_calls
+
+    def test_quota_disabled_returns_friendly_error_without_traceback(self, tmp_path: Path) -> None:
+        manager = manager_for(tmp_path)
+        prepare_quota_account(manager)
+        manager.stdout.seek(0)
+        manager.stdout.truncate(0)
+
+        assert run(["quota"], manager) == 2
+
+        output = manager.stdout.getvalue()
+        assert "experimental private API features are disabled" in output
+        assert "Enable explicitly" in output
+        assert "Traceback" not in output
+        assert "secret-token" not in output
+        assert "authorization" not in output.lower()
+        assert "cookie" not in output.lower()
+
+    def test_quota_endpoint_missing_returns_text_and_json_errors(self, tmp_path: Path) -> None:
+        manager = manager_for(tmp_path)
+        prepare_quota_account(manager)
+        assert run(["config", "set", "experimental_private_api.enabled", "true"], manager) == 0
+        assert run(["config", "set", "experimental_private_api.quota_enabled", "true"], manager) == 0
+        assert run(["config", "set", "experimental_private_api.provider", "custom"], manager) == 0
+        assert run(["config", "set", "experimental_private_api.quota_endpoint", ""], manager) == 0
+
+        manager.stdout.seek(0)
+        manager.stdout.truncate(0)
+        assert run(["quota"], manager) == 2
+        output = manager.stdout.getvalue()
+        assert "ERROR: realtime quota is not configured." in output
+        assert "quota endpoint is not configured" in output
+        assert "codex-workspaces config set experimental_private_api.quota_enabled false" in output
+        assert "Traceback" not in output
+        assert "secret-token" not in output
+
+        manager.stdout.seek(0)
+        manager.stdout.truncate(0)
+        assert run(["quota", "--json"], manager) == 2
+        payload = json.loads(manager.stdout.getvalue())
+        assert payload["status"] == "error"
+        assert payload["account"] == "acct_work"
+        assert payload["workspace"] == "work"
+        assert payload["error"]["type"] == "unsupported_response"
+        assert payload["error"]["message"] == "quota endpoint is not configured"
+
+    def test_accounts_quota_endpoint_missing_returns_friendly_error(self, tmp_path: Path) -> None:
+        manager = manager_for(tmp_path)
+        prepare_quota_account(manager)
+        assert run(["config", "set", "experimental_private_api.enabled", "true"], manager) == 0
+        assert run(["config", "set", "experimental_private_api.quota_enabled", "true"], manager) == 0
+        assert run(["config", "set", "experimental_private_api.provider", "custom"], manager) == 0
+        assert run(["config", "set", "experimental_private_api.quota_endpoint", ""], manager) == 0
+        manager.stdout.seek(0)
+        manager.stdout.truncate(0)
+
+        assert run(["accounts", "quota", "work"], manager) == 2
+
+        output = manager.stdout.getvalue()
+        assert "ERROR: realtime quota is not configured." in output
+        assert "Traceback" not in output
+        assert "secret-token" not in output
+
+    def test_accounts_list_all_with_missing_endpoint_marks_account_error(self, tmp_path: Path) -> None:
+        manager = manager_for(tmp_path)
+        prepare_quota_account(manager)
+        assert run(["accounts", "init", "empty"], manager) == 0
+        assert run(["config", "set", "experimental_private_api.enabled", "true"], manager) == 0
+        assert run(["config", "set", "experimental_private_api.quota_enabled", "true"], manager) == 0
+        assert run(["config", "set", "experimental_private_api.provider", "custom"], manager) == 0
+        assert run(["config", "set", "experimental_private_api.quota_endpoint", ""], manager) == 0
+        manager.stdout.seek(0)
+        manager.stdout.truncate(0)
+
+        assert run(["accounts", "list", "-a"], manager) == 0
+
+        output = manager.stdout.getvalue()
+        assert "acct_work" in output
+        assert "not-configured" in output
+        assert "no-auth" in output
+        assert "Traceback" not in output
+
+    def test_quota_provider_errors_are_friendly_and_redacted(self, tmp_path: Path) -> None:
+        provider = MockPrivateApiProvider()
+        manager = manager_for(tmp_path, private_api_provider=provider)
+        prepare_quota_account(manager)
+        assert run(["config", "set", "experimental_private_api.enabled", "true"], manager) == 0
+        assert run(["config", "set", "experimental_private_api.quota_enabled", "true"], manager) == 0
+
+        provider.quota_error = PrivateApiUnsupportedResponseError("quota endpoint is not configured")
+        manager.stdout.seek(0)
+        manager.stdout.truncate(0)
+        assert run(["quota"], manager) == 2
+        assert "ERROR: realtime quota is not configured." in manager.stdout.getvalue()
+
+        provider.quota_error = PrivateApiNetworkError("timeout authorization bearer secret-token cookie secret-cookie")
+        manager.stdout.seek(0)
+        manager.stdout.truncate(0)
+        assert run(["quota"], manager) == 2
+        output = manager.stdout.getvalue()
+        assert "ERROR: realtime quota request failed." in output
+        assert "Traceback" not in output
+        assert "secret-token" not in output
+        assert "secret-cookie" not in output
+        assert "authorization" not in output.lower()
+        assert "cookie" not in output.lower()
+
+    def test_quota_unauthorized_is_friendly_without_traceback(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        manager = manager_for(tmp_path)
+        prepare_quota_account(manager)
+        assert run(["config", "set", "experimental_private_api.enabled", "true"], manager) == 0
+        assert run(["config", "set", "experimental_private_api.quota_enabled", "true"], manager) == 0
+
+        def fake_urlopen(request, timeout):
+            raise urllib.error.HTTPError(request.full_url, 401, "Unauthorized", {}, None)
+
+        monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+        manager.stdout.seek(0)
+        manager.stdout.truncate(0)
+
+        assert run(["quota"], manager) == 2
+
+        output = manager.stdout.getvalue()
+        assert "ERROR: realtime quota authentication failed." in output
+        assert "run codex login or an official codex command to refresh auth" in output
+        assert "Traceback" not in output
+        assert "secret-token" not in output
 
     def test_account_lifecycle_dispatches(self, tmp_path: Path) -> None:
         manager = manager_for(tmp_path)

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 
 SENSITIVE_WORDS = (
     "access_token",
@@ -10,8 +12,10 @@ SENSITIVE_WORDS = (
     "cookie",
     "api_key",
     "bearer",
-    "token",
 )
+GENERIC_TOKEN_KEY_RE = r"(?i)\btoken\s*[:=]\s*[^\s,;]+"
+
+SENSITIVE_VALUE_RE = r"[^\s,;]+"
 
 
 class PrivateApiError(Exception):
@@ -45,8 +49,12 @@ class PrivateApiNetworkError(PrivateApiError):
 
 
 def redact_sensitive_text(text: str) -> str:
-    redacted = text
+    redacted = str(text)
+    sensitive_keys = "|".join(re.escape(word) for word in SENSITIVE_WORDS)
+    redacted = re.sub(rf"(?i)\bbearer\s+{SENSITIVE_VALUE_RE}", "[redacted] [redacted]", redacted)
+    redacted = re.sub(rf"(?i)\b({sensitive_keys})\s*[:=]\s*{SENSITIVE_VALUE_RE}", "[redacted]=[redacted]", redacted)
+    redacted = re.sub(rf"(?i)\b({sensitive_keys})\s+{SENSITIVE_VALUE_RE}", "[redacted] [redacted]", redacted)
+    redacted = re.sub(GENERIC_TOKEN_KEY_RE, "[redacted]=[redacted]", redacted)
     for word in SENSITIVE_WORDS:
-        redacted = redacted.replace(word, "[redacted]")
-        redacted = redacted.replace(word.upper(), "[redacted]")
+        redacted = re.sub(rf"(?i)\b{re.escape(word)}\b", "[redacted]", redacted)
     return redacted

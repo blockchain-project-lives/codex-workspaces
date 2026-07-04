@@ -5,38 +5,41 @@ from pathlib import Path
 from typing import Any
 
 from ..store import auth_hash
+from .errors import PrivateApiAuthError
 from .models import AuthMaterial
-
-
-ACCESS_KEYS = {"access_token", "id_token", "session_token", "authorization", "bearer", "api_key"}
-REFRESH_KEYS = {"refresh_token"}
 
 
 def extract_auth_material(account_id: str, auth_path: Path) -> AuthMaterial:
     raw_hash = auth_hash(auth_path)
-    access_token = None
-    refresh_token = None
     try:
         data = json.loads(auth_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        data = {}
-    for key, value in walk_key_values(data):
-        normalized = key.lower().replace("-", "_")
-        if access_token is None and (normalized in ACCESS_KEYS or "access_token" in normalized or normalized == "token"):
-            access_token = string_value(value)
-        if refresh_token is None and (normalized in REFRESH_KEYS or "refresh_token" in normalized):
-            refresh_token = string_value(value)
-    return AuthMaterial(account_id=account_id, auth_path=auth_path, access_token=access_token, refresh_token=refresh_token, raw_auth_hash=raw_hash)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise PrivateApiAuthError("auth.json is not readable JSON") from exc
+    if not isinstance(data, dict):
+        raise PrivateApiAuthError("auth.json is not a JSON object")
 
+    auth_mode = string_value(data.get("auth_mode"))
+    if auth_mode != "chatgpt":
+        raise PrivateApiAuthError("unsupported auth_mode; run codex login or an official codex command to refresh auth")
 
-def walk_key_values(value: Any):
-    if isinstance(value, dict):
-        for key, child in value.items():
-            yield str(key), child
-            yield from walk_key_values(child)
-    elif isinstance(value, list):
-        for child in value:
-            yield from walk_key_values(child)
+    tokens = data.get("tokens")
+    if not isinstance(tokens, dict):
+        raise PrivateApiAuthError("missing tokens in auth.json; run codex login or an official codex command to refresh auth")
+
+    access_token = string_value(tokens.get("access_token"))
+    refresh_token = string_value(tokens.get("refresh_token"))
+    openai_account_id = string_value(tokens.get("account_id")) or string_value(data.get("account_id"))
+    if not access_token:
+        raise PrivateApiAuthError("missing tokens.access_token; run codex login or an official codex command to refresh auth")
+
+    return AuthMaterial(
+        account_id=account_id,
+        auth_path=auth_path,
+        access_token=access_token,
+        refresh_token=refresh_token,
+        raw_auth_hash=raw_hash,
+        openai_account_id=openai_account_id,
+    )
 
 
 def string_value(value: Any) -> str | None:

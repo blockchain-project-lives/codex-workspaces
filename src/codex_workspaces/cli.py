@@ -50,8 +50,7 @@ def run(argv: Sequence[str], manager: WorkspaceManager) -> int:
                 no_cache = True
             else:
                 manager.fail(f"未知参数: {arg}", f"Unknown option: {arg}")
-        manager.show_quota(json_output=json_output, no_cache=no_cache)
-        return 0
+        return manager.show_quota(json_output=json_output, no_cache=no_cache)
     if command == "accounts":
         return run_accounts(args, manager)
     if command == "stats":
@@ -262,9 +261,18 @@ def run_accounts(args: Sequence[str], manager: WorkspaceManager) -> int:
         manager.accounts_list(all_with_quota=all_with_quota, no_cache=no_cache, json_output=json_output, verbose=verbose)
         return 0
     if command in {"current", "whoami"}:
-        if rest:
-            manager.fail(f"未知参数: {rest[0]}", f"Unknown option: {rest[0]}")
-        manager.accounts_current()
+        id_only = False
+        json_output = False
+        for arg in rest:
+            if arg == "--id":
+                id_only = True
+            elif arg == "--json":
+                json_output = True
+            else:
+                manager.fail(f"未知参数: {arg}", f"Unknown option: {arg}")
+        if id_only and json_output:
+            manager.fail("--id 和 --json 不能同时使用", "--id and --json cannot be used together")
+        manager.accounts_current(id_only=id_only, json_output=json_output)
         return 0
     if command == "info":
         if len(rest) != 1:
@@ -319,8 +327,7 @@ def run_accounts(args: Sequence[str], manager: WorkspaceManager) -> int:
                 account = arg
             else:
                 manager.fail(f"未知参数: {arg}", f"Unknown option: {arg}")
-        manager.accounts_quota(account or "", json_output=json_output, no_cache=no_cache)
-        return 0
+        return manager.accounts_quota(account or "", json_output=json_output, no_cache=no_cache)
     if command == "export":
         if not rest:
             manager.fail(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import io
 import json
 import os
@@ -17,6 +18,8 @@ from codex_workspaces.auth_inspector import inspect_auth_file
 from codex_workspaces.core import WorkspaceManager, strip_workspace_name, validate_workspace_name
 from codex_workspaces.errors import CodexWorkspacesError
 from codex_workspaces.private_api.errors import PrivateApiAuthError, PrivateApiForbiddenError, PrivateApiNetworkError, PrivateApiRateLimitedError, PrivateApiUnsupportedResponseError
+from codex_workspaces.private_api.auth import extract_auth_material
+from codex_workspaces.private_api.client import ConfiguredHttpPrivateApiProvider, quota_from_response
 from codex_workspaces.private_api.models import AccountRemoteInfo, QuotaInfo
 import codex_workspaces.platforms as platforms_module
 from codex_workspaces.platforms import SystemPlatform
@@ -113,6 +116,32 @@ def assert_secure_file_mode(path: Path) -> None:
     assert path.is_file()
     if os.name == "posix":
         assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
+def chatgpt_auth_json(
+    *,
+    access_token: str = "secret-token",
+    refresh_token: str = "refresh-secret",
+    account_id: str = "chatgpt-account-id",
+    auth_mode: str = "chatgpt",
+    id_token: str | None = None,
+) -> str:
+    tokens = {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "account_id": account_id,
+    }
+    if id_token is not None:
+        tokens["id_token"] = id_token
+    return json.dumps({"auth_mode": auth_mode, "tokens": tokens}) + "\n"
+
+
+def unsigned_jwt(payload: dict) -> str:
+    def encode(data: dict) -> str:
+        raw = json.dumps(data, separators=(",", ":")).encode("utf-8")
+        return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+    return f"{encode({'alg': 'none'})}.{encode(payload)}."
 
 
 class MockPrivateApiProvider:
@@ -757,14 +786,28 @@ class TestWorkspaceManager:
         manager, stdout, _ = make_manager(tmp_path, private_api_provider=provider)
         manager.init_workspace("work", [])
         manager.switch_workspace("work", ["--no-stop", "--no-start"], ["switch", "work"])
-        (manager.workspace_dir("work") / "auth.json").write_text('{"access_token":"secret-token"}\n', encoding="utf-8")
+        (manager.workspace_dir("work") / "auth.json").write_text(chatgpt_auth_json(), encoding="utf-8")
         manager.accounts_save("work")
         manager.accounts_set_default("work", "work", activate=True)
 
+        defaults = manager.default_private_api_config()
+        assert defaults["base_url"] == "https://chatgpt.com"
+        assert defaults["quota_endpoint"] == "/backend-api/wham/usage"
+        assert defaults["account_endpoint"] == ""
+        assert defaults["enabled"] is False
+        assert defaults["quota_enabled"] is False
+        legacy_config = manager.read_tool_config()
+        legacy_config["experimental_private_api"]["base_url"] = ""
+        legacy_config["experimental_private_api"]["quota_endpoint"] = ""
+        manager.write_tool_config(legacy_config)
+        migrated_settings = manager.private_api_settings()
+        assert migrated_settings["base_url"] == "https://chatgpt.com"
+        assert migrated_settings["quota_endpoint"] == "/backend-api/wham/usage"
+
         with pytest.raises(PrivateApiAuthError):
             raise PrivateApiAuthError("authorization bearer secret-token access_token")
-        with pytest.raises(CodexWorkspacesError, match="experimental private API features are disabled"):
-            manager.show_quota()
+        assert manager.show_quota() == 2
+        assert "experimental private API features are disabled" in stdout.getvalue()
         assert provider.quota_calls == []
 
         manager.config_get("experimental_private_api.enabled")
@@ -772,12 +815,18 @@ class TestWorkspaceManager:
         with pytest.raises(CodexWorkspacesError, match="Boolean"):
             manager.config_set("experimental_private_api.enabled", "maybe")
 
+        manager.config_set("experimental_private_api.enabled", "true")
+        manager.config_set("experimental_private_api.quota_enabled", "true")
+        settings = manager.private_api_settings()
+        assert settings["enabled"] is True
+        assert settings["quota_enabled"] is True
+
     def test_quota_current_account_specific_account_cache_and_json_redaction(self, tmp_path: Path) -> None:
         provider = MockPrivateApiProvider()
         manager, stdout, _ = make_manager(tmp_path, private_api_provider=provider)
         manager.init_workspace("work", [])
         manager.switch_workspace("work", ["--no-stop", "--no-start"], ["switch", "work"])
-        (manager.workspace_dir("work") / "auth.json").write_text('{"access_token":"secret-token","email":"work@example.com"}\n', encoding="utf-8")
+        (manager.workspace_dir("work") / "auth.json").write_text(chatgpt_auth_json(), encoding="utf-8")
         manager.accounts_save("work")
         manager.accounts_set_default("work", "work", activate=True)
         manager.config_set("experimental_private_api.enabled", "true")
@@ -804,12 +853,92 @@ class TestWorkspaceManager:
         cache_text = manager.quota_cache_path("acct_work").read_text(encoding="utf-8")
         assert "secret-token" not in cache_text
 
+    def test_extract_auth_material_uses_chatgpt_tokens_and_not_id_token(self, tmp_path: Path) -> None:
+        auth_path = tmp_path / "auth.json"
+        auth_path.write_text(
+            chatgpt_auth_json(access_token="access-secret", refresh_token="refresh-secret", account_id="account-secret", id_token="id-secret"),
+            encoding="utf-8",
+        )
+
+        auth = extract_auth_material("acct_work", auth_path)
+
+        assert auth.access_token == "access-secret"
+        assert auth.refresh_token == "refresh-secret"
+        assert auth.openai_account_id == "account-secret"
+        assert auth.access_token != "id-secret"
+
+    def test_extract_auth_material_rejects_non_chatgpt_mode(self, tmp_path: Path) -> None:
+        auth_path = tmp_path / "auth.json"
+        auth_path.write_text(chatgpt_auth_json(auth_mode="api-key"), encoding="utf-8")
+
+        with pytest.raises(PrivateApiAuthError, match="unsupported auth_mode"):
+            extract_auth_material("acct_work", auth_path)
+
+    def test_wham_provider_sends_openai_account_header(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured = {}
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self):
+                return b'{"quota":{"status":"ok","used_percent":12}}'
+
+        def fake_urlopen(request, timeout):
+            captured["url"] = request.full_url
+            captured["headers"] = {key.lower(): value for key, value in request.header_items()}
+            captured["timeout"] = timeout
+            return FakeResponse()
+
+        monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+        provider = ConfiguredHttpPrivateApiProvider(
+            base_url="https://chatgpt.com",
+            quota_endpoint="/backend-api/wham/usage",
+            account_endpoint=None,
+            timeout_seconds=7,
+            user_agent="codex-workspaces/test",
+        )
+        auth_path = tmp_path / "auth.json"
+        auth_path.write_text(chatgpt_auth_json(access_token="access-secret", account_id="account-secret"), encoding="utf-8")
+
+        quota = provider.get_quota(extract_auth_material("acct_work", auth_path))
+
+        assert quota.status == "ok"
+        assert captured["url"] == "https://chatgpt.com/backend-api/wham/usage"
+        assert captured["headers"]["authorization"] == "Bearer access-secret"
+        assert captured["headers"]["openai-account-id"] == "account-secret"
+        assert captured["headers"]["user-agent"] == "codex-workspaces/test"
+        assert captured["timeout"] == 7
+
+    def test_wham_provider_rejects_expired_access_token_before_request(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        calls = []
+        monkeypatch.setattr("urllib.request.urlopen", lambda *args, **kwargs: calls.append(args) or None)
+        provider = ConfiguredHttpPrivateApiProvider(
+            base_url="https://chatgpt.com",
+            quota_endpoint="/backend-api/wham/usage",
+            account_endpoint=None,
+            timeout_seconds=7,
+            user_agent="codex-workspaces/test",
+        )
+        auth_path = tmp_path / "auth.json"
+        auth_path.write_text(
+            chatgpt_auth_json(access_token=unsigned_jwt({"exp": 1}), account_id="account-secret"),
+            encoding="utf-8",
+        )
+
+        with pytest.raises(PrivateApiAuthError, match="access token expired"):
+            provider.get_quota(extract_auth_material("acct_work", auth_path))
+        assert calls == []
+
     def test_accounts_list_with_quota_handles_partial_failures_and_plain_list_is_local(self, tmp_path: Path) -> None:
         provider = MockPrivateApiProvider()
         manager, stdout, _ = make_manager(tmp_path, private_api_provider=provider)
         manager.accounts_init("work")
         auth_path = manager.store.account_dir("acct_work") / "auth.json"
-        auth_path.write_text('{"access_token":"secret-token"}\n', encoding="utf-8")
+        auth_path.write_text(chatgpt_auth_json(), encoding="utf-8")
         manager.store.save_auth_to_account("acct_work", auth_path)
         manager.accounts_init("old")
         manager.config_set("experimental_private_api.enabled", "true")
@@ -823,7 +952,7 @@ class TestWorkspaceManager:
         provider.quota_error = PrivateApiRateLimitedError("rate limited bearer secret-token")
         manager.accounts_list(all_with_quota=True, verbose=True)
         output = stdout.getvalue()
-        assert "error:rate limited" in output
+        assert "rate-limited:rate limited" in output
         assert "no-auth" in output
         assert "secret-token" not in output
 
@@ -832,7 +961,7 @@ class TestWorkspaceManager:
         manager, stdout, _ = make_manager(tmp_path, private_api_provider=provider)
         manager.init_workspace("work", [])
         manager.switch_workspace("work", ["--no-stop", "--no-start"], ["switch", "work"])
-        (manager.workspace_dir("work") / "auth.json").write_text('{"access_token":"secret-token"}\n', encoding="utf-8")
+        (manager.workspace_dir("work") / "auth.json").write_text(chatgpt_auth_json(), encoding="utf-8")
         manager.accounts_save("work")
         manager.accounts_set_default("work", "work", activate=True)
         manager.accounts_init("empty")
@@ -869,6 +998,65 @@ class TestWorkspaceManager:
             assert "authorization" not in text
             assert "refresh_token" not in text
             assert "cookie" not in text
+            assert "secret" not in text
+
+    def test_quota_from_response_parses_wham_primary_window(self) -> None:
+        quota = quota_from_response(
+            {
+                "rate_limit": {
+                    "primary_window": {
+                        "used_percent": 42.5,
+                        "limit_window_seconds": 10800,
+                        "reset_after_seconds": 120,
+                        "reset_at": 1767225600,
+                    },
+                    "secondary_window": {"used_percent": 10},
+                    "allowed": True,
+                    "limit_reached": False,
+                },
+                "credits": {"unlimited": True, "balance": 123},
+            }
+        )
+
+        assert quota.status == "ok"
+        assert quota.used_percent == 42.5
+        assert quota.remaining_percent == 57.5
+        assert quota.window_duration_mins == 180
+        assert quota.reset_at == "2026-01-01T00:00:00+00:00"
+        assert quota.plan == "unlimited"
+
+        limited = quota_from_response(
+            {
+                "rate_limit": {
+                    "primary_window": {"used_percent": 100, "limit_window_seconds": 3600, "reset_at": "2026-07-05T04:00:00+08:00"},
+                    "allowed": False,
+                    "limit_reached": True,
+                }
+            }
+        )
+        assert limited.status == "limit_reached"
+        assert limited.remaining_percent == 0.0
+        assert limited.reset_at == "2026-07-05T04:00:00+08:00"
+
+    def test_quota_from_response_keeps_generic_fallback(self) -> None:
+        quota = quota_from_response(
+            {
+                "quota": {
+                    "status": "ok",
+                    "used_percent": 25,
+                    "remaining_percent": 75,
+                    "reset_at": "2026-07-05T04:00:00+08:00",
+                    "window_duration_mins": 180,
+                    "plan": "Plus",
+                }
+            }
+        )
+
+        assert quota.status == "ok"
+        assert quota.used_percent == 25.0
+        assert quota.remaining_percent == 75.0
+        assert quota.window_duration_mins == 180
+        assert quota.plan == "Plus"
 
     def test_restore_policy_last_active_keeps_workspace_active_account(self, tmp_path: Path) -> None:
         manager, _, _ = make_manager(tmp_path, restore_policy="last-active")

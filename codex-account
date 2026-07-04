@@ -96,6 +96,7 @@ codex-account - Codex 多账号切换工具
   codex-account create <账号名> [--migrate-current]
       创建新的账号目录 ~/.codex-<账号名>。
       加 --migrate-current 可将已有的真实 ~/.codex 目录迁移为该账号。
+      为避免配置损坏，迁移前必须先从外部 Terminal 关闭 Codex App。
 
   codex-account install [目录]
       安装本脚本到 PATH 目录。默认优先选择已有 PATH 中可写的目录。
@@ -147,6 +148,8 @@ Usage:
       Create a new account directory ~/.codex-<account>.
       Add --migrate-current to migrate an existing real ~/.codex directory
       into this account.
+      To avoid corrupting config files, quit Codex App from an external
+      terminal before migration.
 
   codex-account install [directory]
       Install this script into a PATH directory. By default it chooses
@@ -336,6 +339,42 @@ app_running() {
   pgrep -x "$APP_NAME" >/dev/null 2>&1
 }
 
+ensure_app_not_running_for_migration() {
+  local status
+
+  if ! command -v pgrep >/dev/null 2>&1; then
+    if is_zh; then
+      die "无法检查 $APP_NAME 是否运行，因为找不到 pgrep。请先确认 $APP_NAME 已关闭。"
+    else
+      die "Cannot check whether $APP_NAME is running because pgrep is not available. Please confirm $APP_NAME is closed first."
+    fi
+  fi
+
+  set +e
+  pgrep -x "$APP_NAME" >/dev/null 2>&1
+  status=$?
+  set -e
+  case "$status" in
+    0)
+      if is_zh; then
+        die "$APP_NAME 正在运行。为避免配置损坏，请先从外部 Terminal 关闭 $APP_NAME 后再执行迁移。"
+      else
+        die "$APP_NAME is running. To avoid corrupting config files, quit $APP_NAME from an external terminal before migration."
+      fi
+      ;;
+    1)
+      return 0
+      ;;
+    *)
+      if is_zh; then
+        die "无法确认 $APP_NAME 是否运行。为避免配置损坏，请先从外部 Terminal 确认 $APP_NAME 已关闭后再执行迁移。"
+      else
+        die "Cannot confirm whether $APP_NAME is running. To avoid corrupting config files, confirm $APP_NAME is closed from an external terminal before migration."
+      fi
+      ;;
+  esac
+}
+
 stop_codex() {
   local force="${1:-0}"
   local waited=0
@@ -482,6 +521,7 @@ create_account() {
   fi
 
   if [ "$migrate_current" -eq 1 ]; then
+    ensure_app_not_running_for_migration
     if [ -L "$ACTIVE_LINK" ]; then
       if is_zh; then
         die "$ACTIVE_LINK 已经是软链接，无需迁移。"

@@ -56,11 +56,21 @@ You can customize the active link and account directory prefix with environment 
 
 If you already have a real `~/.codex` directory, migrate it into the account layout before switching:
 
+First quit Codex from an external Terminal window:
+
+```bash
+codex-account stop
+```
+
+Then migrate the existing directory:
+
 ```bash
 codex-account create personal --migrate-current
 ```
 
 This moves the existing `~/.codex` directory to `~/.codex-personal`, then creates a new `~/.codex` symlink pointing to it.
+
+The migration command refuses to run while the Codex app is still running. If it cannot confirm whether Codex is running, it refuses to migrate as well. This avoids moving configuration files while the app may still be reading or writing them.
 
 Then create another account directory when needed:
 
@@ -99,6 +109,7 @@ codex-account create work
 Migrate the existing real `~/.codex` directory into a new account:
 
 ```bash
+codex-account stop
 codex-account create personal --migrate-current
 ```
 
@@ -162,7 +173,7 @@ CODEX_APP_NAME="Codex" codex-account restart
 ## Notes
 
 - Account names may contain letters, numbers, dots, underscores, and hyphens.
-- `create <account> --migrate-current` only works when `~/.codex` exists as a real directory and `~/.codex-<account>` does not already exist.
+- `create <account> --migrate-current` only works when Codex is confirmed not running, `~/.codex` exists as a real directory, and `~/.codex-<account>` does not already exist.
 - Switching removes and recreates only the `~/.codex` symlink.
 - Account directories such as `~/.codex-work` are not deleted by switch commands.
 - The script is dependency-light and uses standard macOS commands such as `osascript`, `open`, `pgrep`, and `killall`.

@@ -56,11 +56,21 @@ tmp="$(mktemp -t codex-account.XXXXXX)" && curl -fsSL https://raw.githubusercont
 
 如果你已经有一个真实存在的 `~/.codex` 目录，请先把它迁移到账户目录结构中：
 
+先在外部 Terminal 窗口关闭 Codex：
+
+```bash
+codex-account stop
+```
+
+然后迁移已有目录：
+
 ```bash
 codex-account create personal --migrate-current
 ```
 
 这个命令会把已有的 `~/.codex` 目录移动到 `~/.codex-personal`，然后重新创建 `~/.codex` 软链接指向它。
+
+迁移命令会在 Codex App 仍在运行时拒绝执行；如果无法确认 Codex 是否正在运行，也会拒绝迁移。这样可以避免 App 正在读写配置文件时移动目录。
 
 之后如果需要，可以再创建另一个账号目录：
 
@@ -99,6 +109,7 @@ codex-account create work
 将已有的真实 `~/.codex` 目录迁移成新账号：
 
 ```bash
+codex-account stop
 codex-account create personal --migrate-current
 ```
 
@@ -162,7 +173,7 @@ CODEX_APP_NAME="Codex" codex-account restart
 ## 注意事项
 
 - 账号名只能包含字母、数字、点、下划线和连字符。
-- `create <账号名> --migrate-current` 只会在 `~/.codex` 是真实目录且 `~/.codex-<账号名>` 不存在时执行迁移。
+- `create <账号名> --migrate-current` 只会在确认 Codex 未运行、`~/.codex` 是真实目录且 `~/.codex-<账号名>` 不存在时执行迁移。
 - 切换账号时只会删除并重建 `~/.codex` 这个软链接。
 - `~/.codex-work` 这类账号目录不会被切换命令删除。
 - 脚本依赖很少，主要使用 macOS 自带命令，例如 `osascript`、`open`、`pgrep` 和 `killall`。

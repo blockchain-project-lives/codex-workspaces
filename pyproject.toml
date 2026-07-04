@@ -3,15 +3,15 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "codex-accounts"
+name = "codex-workspaces"
 version = "0.1.0"
-description = "Cross-platform Codex account switcher with a preserved macOS shell workflow."
+description = "Cross-platform Codex workspace switcher with a preserved macOS shell workflow."
 readme = "README.MD"
 requires-python = ">=3.9"
 authors = [
   { name = "blockchain-project-lives" }
 ]
-keywords = ["codex", "accounts", "cli", "symlink"]
+keywords = ["codex", "workspaces", "cli", "symlink"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Environment :: Console",
@@ -36,12 +36,12 @@ dev = [
 ]
 
 [project.scripts]
-codex-accounts = "codex_accounts.cli:main"
+codex-workspaces = "codex_workspaces.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/blockchain-project-lives/codex-accounts"
-Repository = "https://github.com/blockchain-project-lives/codex-accounts"
-Changelog = "https://github.com/blockchain-project-lives/codex-accounts/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/blockchain-project-lives/codex-workspaces"
+Repository = "https://github.com/blockchain-project-lives/codex-workspaces"
+Changelog = "https://github.com/blockchain-project-lives/codex-workspaces/blob/main/CHANGELOG.md"
 
 [tool.setuptools.packages.find]
 where = ["src"]

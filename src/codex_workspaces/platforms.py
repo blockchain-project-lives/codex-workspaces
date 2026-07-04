@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Mapping, Optional, Sequence, TextIO
 
 from .config import Config
-from .errors import CodexAccountsError
+from .errors import CodexWorkspacesError
 
 
 CODEX_TERMINAL_ENV = (
@@ -116,7 +116,7 @@ class SystemPlatform:
         )
         if result.returncode != 0:
             detail = (result.stderr or result.stdout).strip()
-            raise CodexAccountsError(
+            raise CodexWorkspacesError(
                 f"Could not create directory link {link} -> {target}: {detail}"
             )
 
@@ -127,7 +127,7 @@ class SystemPlatform:
         if self.is_windows and self.is_directory_link(link):
             link.rmdir()
             return
-        raise CodexAccountsError(f"Refusing to remove non-link path: {link}")
+        raise CodexWorkspacesError(f"Refusing to remove non-link path: {link}")
 
     def app_running_status(self, app_name: str) -> Optional[bool]:
         if shutil.which("pgrep") is None:
@@ -152,7 +152,7 @@ class SystemPlatform:
         stdout: TextIO,
     ) -> None:
         if not self.supports_app_control:
-            raise CodexAccountsError(
+            raise CodexWorkspacesError(
                 f"App stop is only supported on macOS. Use --no-stop on this platform."
             )
 
@@ -161,7 +161,7 @@ class SystemPlatform:
             print(f"{app_name} is not running.", file=stdout)
             return
         if running is None:
-            raise CodexAccountsError(f"Cannot confirm whether {app_name} is running.")
+            raise CodexWorkspacesError(f"Cannot confirm whether {app_name} is running.")
 
         print(f"Quitting {app_name} ...", file=stdout)
         subprocess.run(
@@ -178,7 +178,7 @@ class SystemPlatform:
 
         if self.app_running_status(app_name):
             if not force:
-                raise CodexAccountsError(
+                raise CodexWorkspacesError(
                     f"{app_name} did not exit within {timeout}s; add --force to force quit"
                 )
             print(f"{app_name} did not exit within {timeout}s; forcing it to quit.", file=stdout)
@@ -194,10 +194,10 @@ class SystemPlatform:
 
     def start_app(self, app_name: str) -> None:
         if not self.supports_app_control:
-            raise CodexAccountsError("App start is only supported on macOS.")
+            raise CodexWorkspacesError("App start is only supported on macOS.")
         result = subprocess.run(["open", "-a", app_name], check=False)
         if result.returncode != 0:
-            raise CodexAccountsError(f"Could not start {app_name}.")
+            raise CodexWorkspacesError(f"Could not start {app_name}.")
 
     def delegate_to_external_terminal(
         self,
@@ -207,7 +207,7 @@ class SystemPlatform:
         stdout: TextIO,
     ) -> None:
         if not self.supports_external_terminal_delegation:
-            raise CodexAccountsError(
+            raise CodexWorkspacesError(
                 "Cannot delegate to an external terminal on this platform."
             )
 
@@ -216,7 +216,7 @@ class SystemPlatform:
             file=stdout,
         )
         command = self._delegated_command(config, argv)
-        fd, raw_name = tempfile.mkstemp(prefix="codex-accounts.", dir=tempfile.gettempdir())
+        fd, raw_name = tempfile.mkstemp(prefix="codex-workspaces.", dir=tempfile.gettempdir())
         os.close(fd)
         launcher = Path(raw_name + ".command")
         Path(raw_name).rename(launcher)
@@ -226,7 +226,7 @@ class SystemPlatform:
                     "#!/usr/bin/env bash",
                     command,
                     "status=$?",
-                    'printf "\\n[codex-accounts] Done with exit status %s. You can close this window.\\n" "$status"',
+                    'printf "\\n[codex-workspaces] Done with exit status %s. You can close this window.\\n" "$status"',
                     'rm -f "$0"',
                     'exit "$status"',
                     "",
@@ -243,7 +243,7 @@ class SystemPlatform:
         )
         if result.returncode != 0:
             launcher.unlink(missing_ok=True)
-            raise CodexAccountsError(
+            raise CodexWorkspacesError(
                 "Could not open Terminal.app. Open the system Terminal manually and run this command again."
             )
 
@@ -252,13 +252,13 @@ class SystemPlatform:
         exports = {
             "CODEX_APP_NAME": config.app_name,
             "CODEX_QUIT_TIMEOUT": str(config.quit_timeout),
-            "CODEX_ACCOUNTS_LINK": str(config.active_link),
-            "CODEX_ACCOUNTS_PREFIX": config.account_prefix,
-            "CODEX_ACCOUNTS_LANG": config.lang,
+            "CODEX_WORKSPACES_LINK": str(config.active_link),
+            "CODEX_WORKSPACES_PREFIX": config.workspace_prefix,
+            "CODEX_WORKSPACES_LANG": config.lang,
         }
         for key, value in exports.items():
             pieces.append(f"export {key}={shlex.quote(value)};")
         pieces.append(shlex.quote(self.python_executable))
-        pieces.append("-m codex_accounts")
+        pieces.append("-m codex_workspaces")
         pieces.extend(shlex.quote(arg) for arg in argv)
         return " ".join(pieces)

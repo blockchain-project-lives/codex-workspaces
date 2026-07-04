@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: testpypi
-      url: https://test.pypi.org/p/codex-accounts
+      url: https://test.pypi.org/p/codex-workspaces
     permissions:
       contents: read
       id-token: write

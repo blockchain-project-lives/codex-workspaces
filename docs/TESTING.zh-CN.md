@@ -4,14 +4,14 @@
 
 测试覆盖三类风险：
 
-- 文件系统行为：创建账号、迁移账号、切换链接、拒绝覆盖真实目录。
-- CLI 行为：命令别名、账号名快捷切换、错误路径、帮助输出。
+- 文件系统行为：创建工作区、迁移工作区、切换链接、拒绝覆盖真实目录。
+- CLI 行为：命令别名、工作区名快捷切换、错误路径、帮助输出。
 - 平台行为：macOS App 控制可注入，非 macOS 自动跳过 App 启停，Codex 内置 Terminal 阻止或转交危险操作。
 
 ## 测试结构
 
 ```text
-tests/test_core.py  AccountManager 和账号规则测试
+tests/test_core.py  WorkspaceManager 和工作区规则测试
 tests/test_cli.py   CLI 分发测试
 ```
 
@@ -47,29 +47,29 @@ python -m twine check dist/*
 
 ## 手动验收建议
 
-在不影响真实账号的临时目录中测试：
+在不影响真实工作区的临时目录中测试：
 
 ```bash
 tmp_home="$(mktemp -d)"
-CODEX_ACCOUNTS_LINK="$tmp_home/.codex" \
-CODEX_ACCOUNTS_PREFIX="$tmp_home/.codex-" \
-codex-accounts create personal
+CODEX_WORKSPACES_LINK="$tmp_home/.codex" \
+CODEX_WORKSPACES_PREFIX="$tmp_home/.codex-" \
+codex-workspaces create personal
 
-CODEX_ACCOUNTS_LINK="$tmp_home/.codex" \
-CODEX_ACCOUNTS_PREFIX="$tmp_home/.codex-" \
-codex-accounts switch personal --no-stop --no-start
+CODEX_WORKSPACES_LINK="$tmp_home/.codex" \
+CODEX_WORKSPACES_PREFIX="$tmp_home/.codex-" \
+codex-workspaces switch personal --no-stop --no-start
 
-CODEX_ACCOUNTS_LINK="$tmp_home/.codex" \
-CODEX_ACCOUNTS_PREFIX="$tmp_home/.codex-" \
-codex-accounts current
+CODEX_WORKSPACES_LINK="$tmp_home/.codex" \
+CODEX_WORKSPACES_PREFIX="$tmp_home/.codex-" \
+codex-workspaces current
 ```
 
 macOS 上再额外验证：
 
 ```bash
-codex-accounts stop
-codex-accounts start
-codex-accounts restart
+codex-workspaces stop
+codex-workspaces start
+codex-workspaces restart
 ```
 
 这些命令会真实控制 Codex App，应在确认当前工作已保存后执行。

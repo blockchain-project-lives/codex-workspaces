@@ -5,29 +5,29 @@ from pathlib import Path
 
 import pytest
 
-from codex_accounts.config import Config
-from codex_accounts.cli import run
-from codex_accounts.core import AccountManager
-from codex_accounts.errors import CodexAccountsError
+from codex_workspaces.config import Config
+from codex_workspaces.cli import run
+from codex_workspaces.core import WorkspaceManager
+from codex_workspaces.errors import CodexWorkspacesError
 from test_core import FakePlatform
 
 
-def manager_for(tmp_path: Path) -> AccountManager:
+def manager_for(tmp_path: Path) -> WorkspaceManager:
     home = tmp_path / "home"
     home.mkdir()
     config = Config(
         app_name="Codex",
         home_dir=home,
         active_link=home / ".codex",
-        account_prefix=str(home / ".codex-"),
+        workspace_prefix=str(home / ".codex-"),
         quit_timeout=20,
         lang="en",
     )
-    return AccountManager(config, FakePlatform(), io.StringIO(), io.StringIO())
+    return WorkspaceManager(config, FakePlatform(), io.StringIO(), io.StringIO())
 
 
 class TestCliDispatch:
-    def test_create_and_account_name_alias(self, tmp_path: Path) -> None:
+    def test_create_and_workspace_name_alias(self, tmp_path: Path) -> None:
         manager = manager_for(tmp_path)
 
         assert run(["create", "work"], manager) == 0
@@ -35,7 +35,7 @@ class TestCliDispatch:
 
         assert manager.current_target().kind == "target"
 
-    def test_current_returns_named_account(self, tmp_path: Path) -> None:
+    def test_current_returns_named_workspace(self, tmp_path: Path) -> None:
         manager = manager_for(tmp_path)
 
         run(["create", "work"], manager)
@@ -47,7 +47,7 @@ class TestCliDispatch:
     def test_unknown_command_raises_expected_error(self, tmp_path: Path) -> None:
         manager = manager_for(tmp_path)
 
-        with pytest.raises(CodexAccountsError, match="Unknown command"):
+        with pytest.raises(CodexWorkspacesError, match="Unknown command"):
             run(["missing"], manager)
 
     def test_help_prints_usage(self, tmp_path: Path) -> None:
@@ -55,4 +55,4 @@ class TestCliDispatch:
 
         assert run(["help"], manager) == 0
 
-        assert "Codex multi-account switcher" in manager.stdout.getvalue()
+        assert "Codex multi-workspace switcher" in manager.stdout.getvalue()

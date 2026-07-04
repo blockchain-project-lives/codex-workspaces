@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/p/codex-accounts
+      url: https://pypi.org/p/codex-workspaces
     permissions:
       contents: read
       id-token: write

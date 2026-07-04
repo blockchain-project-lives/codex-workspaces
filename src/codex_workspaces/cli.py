@@ -4,8 +4,8 @@ import sys
 from typing import Optional, Sequence
 
 from .config import Config
-from .core import AccountManager, account_dir, usage
-from .errors import CodexAccountsError
+from .core import WorkspaceManager, workspace_dir, usage
+from .errors import CodexWorkspacesError
 from .platforms import SystemPlatform
 
 
@@ -14,7 +14,7 @@ def _print_error(message: str, lang: str) -> None:
     print(f"{prefix}: {message}", file=sys.stderr)
 
 
-def run(argv: Sequence[str], manager: AccountManager) -> int:
+def run(argv: Sequence[str], manager: WorkspaceManager) -> int:
     command = argv[0] if argv else "help"
     args = list(argv[1:])
 
@@ -22,7 +22,7 @@ def run(argv: Sequence[str], manager: AccountManager) -> int:
         manager.info(usage(manager.config.lang))
         return 0
     if command in {"list", "ls"}:
-        manager.list_accounts()
+        manager.list_workspaces()
         return 0
     if command in {"current", "whoami"}:
         manager.show_current()
@@ -30,10 +30,10 @@ def run(argv: Sequence[str], manager: AccountManager) -> int:
     if command in {"use", "switch", "sw"}:
         if not args:
             manager.fail(
-                "缺少账号名，例如: codex-accounts use work",
-                "Missing account name, for example: codex-accounts use work",
+                "缺少工作区名，例如: codex-workspaces use work",
+                "Missing workspace name, for example: codex-workspaces use work",
             )
-        manager.switch_account(args[0], args[1:], argv)
+        manager.switch_workspace(args[0], args[1:], argv)
         return 0
     if command in {"stop", "quit", "close"}:
         force = False
@@ -60,9 +60,9 @@ def run(argv: Sequence[str], manager: AccountManager) -> int:
         return 0
     if command in {"create", "new"}:
         if not args:
-            manager.create_account("", [])
+            manager.create_workspace("", [])
         else:
-            manager.create_account(args[0], args[1:])
+            manager.create_workspace(args[0], args[1:])
         return 0
     if command == "install":
         if len(args) > 1:
@@ -71,23 +71,23 @@ def run(argv: Sequence[str], manager: AccountManager) -> int:
         return 0
 
     try:
-        if account_dir(manager.config, command).is_dir():
-            manager.switch_account(command, args, argv)
+        if workspace_dir(manager.config, command).is_dir():
+            manager.switch_workspace(command, args, argv)
             return 0
-    except CodexAccountsError:
+    except CodexWorkspacesError:
         pass
 
-    manager.fail(f"未知命令或账号不存在: {command}", f"Unknown command or account does not exist: {command}")
+    manager.fail(f"未知命令或工作区不存在: {command}", f"Unknown command or workspace does not exist: {command}")
     return 1
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     platform_service = SystemPlatform()
     config = Config.from_env(apple_language=platform_service.apple_language())
-    manager = AccountManager(config, platform_service)
+    manager = WorkspaceManager(config, platform_service)
     try:
         return run(list(sys.argv[1:] if argv is None else argv), manager)
-    except CodexAccountsError as exc:
+    except CodexWorkspacesError as exc:
         _print_error(exc.message, config.lang)
         if exc.message.startswith("Unknown command") or exc.message.startswith("未知命令"):
             print(file=sys.stderr)

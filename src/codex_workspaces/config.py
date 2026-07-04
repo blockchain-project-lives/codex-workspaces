@@ -18,7 +18,7 @@ def detect_ui_lang(
     env: Mapping[str, str],
     apple_language: Optional[str] = None,
 ) -> str:
-    forced = env.get("CODEX_ACCOUNTS_LANG") or env.get("CODEX_ACCOUNT_LANG") or ""
+    forced = env.get("CODEX_WORKSPACES_LANG") or ""
     if _looks_zh(forced):
         return "zh"
     if _looks_en(forced):
@@ -42,7 +42,7 @@ class Config:
     app_name: str
     home_dir: Path
     active_link: Path
-    account_prefix: str
+    workspace_prefix: str
     quit_timeout: int
     lang: str
 
@@ -57,15 +57,11 @@ class Config:
         home_dir = Path(home or env.get("HOME") or Path.home()).expanduser()
         active_link = Path(
             _expand_path(
-                env.get("CODEX_ACCOUNTS_LINK")
-                or env.get("CODEX_ACCOUNT_LINK")
-                or str(home_dir / ".codex")
+                env.get("CODEX_WORKSPACES_LINK") or str(home_dir / ".codex")
             )
         )
-        account_prefix = _expand_path(
-            env.get("CODEX_ACCOUNTS_PREFIX")
-            or env.get("CODEX_ACCOUNT_PREFIX")
-            or str(home_dir / ".codex-")
+        workspace_prefix = _expand_path(
+            env.get("CODEX_WORKSPACES_PREFIX") or str(home_dir / ".codex-")
         )
         quit_timeout = int(env.get("CODEX_QUIT_TIMEOUT") or "20")
 
@@ -73,7 +69,7 @@ class Config:
             app_name=env.get("CODEX_APP_NAME") or "Codex",
             home_dir=home_dir,
             active_link=active_link,
-            account_prefix=account_prefix,
+            workspace_prefix=workspace_prefix,
             quit_timeout=quit_timeout,
             lang=detect_ui_lang(env, apple_language),
         )

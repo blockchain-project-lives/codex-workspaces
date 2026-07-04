@@ -5,7 +5,7 @@
 版本号目前维护在两个位置：
 
 - `pyproject.toml` 的 `project.version`
-- `src/codex_accounts/__init__.py` 的 `__version__`
+- `src/codex_workspaces/__init__.py` 的 `__version__`
 
 发布前两处必须一致。
 
@@ -21,8 +21,8 @@ python3 -m twine check dist/*
 确认 `dist/` 中有：
 
 ```text
-codex_accounts-<version>-py3-none-any.whl
-codex_accounts-<version>.tar.gz
+codex_workspaces-<version>-py3-none-any.whl
+codex_workspaces-<version>.tar.gz
 ```
 
 `dist/` 是构建产物，不提交到 Git。
@@ -35,12 +35,12 @@ codex_accounts-<version>.tar.gz
 
 ```text
 Owner: blockchain-project-lives
-Repository: codex-accounts
+Repository: codex-workspaces
 Workflow name: publish.yml
 Environment name: pypi
 ```
 
-如果 PyPI 项目尚未创建，第一次发布可以先手动创建项目名，或通过受信发布流程创建。若 `codex-accounts` 名称已被占用，需要调整 `pyproject.toml` 中的 `project.name`。
+如果 PyPI 项目尚未创建，第一次发布可以先手动创建项目名，或通过受信发布流程创建。若 `codex-workspaces` 名称已被占用，需要调整 `pyproject.toml` 中的 `project.name`。
 
 ## TestPyPI Trusted Publishing 配置
 
@@ -48,7 +48,7 @@ TestPyPI 是独立站点，需要单独注册账号、单独配置 Trusted Publi
 
 ```text
 Owner: blockchain-project-lives
-Repository: codex-accounts
+Repository: codex-workspaces
 Workflow name: publish-testpypi.yml
 Environment name: testpypi
 Repository URL: https://test.pypi.org/legacy/

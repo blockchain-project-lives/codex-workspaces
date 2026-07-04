@@ -11,35 +11,35 @@ from pathlib import Path
 from typing import Iterable, List, Optional, Sequence, TextIO
 
 from .config import Config
-from .errors import CodexAccountsError
+from .errors import CodexWorkspacesError
 from .platforms import SystemPlatform
 
-ACCOUNT_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+WORKSPACE_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
-def strip_account_name(value: str) -> str:
+def strip_workspace_name(value: str) -> str:
     name = re.split(r"[\\/]+", value.rstrip("\\/"))[-1]
     if name.startswith(".codex-"):
         name = name[len(".codex-") :]
     return name
 
 
-def validate_account_name(name: str) -> None:
+def validate_workspace_name(name: str) -> None:
     if not name:
-        raise CodexAccountsError("Account name cannot be empty")
+        raise CodexWorkspacesError("Workspace name cannot be empty")
     if name in {".", ".."}:
-        raise CodexAccountsError(f"Account name cannot be {name}")
-    if not ACCOUNT_RE.match(name):
-        raise CodexAccountsError(
-            "Account name can only contain letters, numbers, dots, underscores, and hyphens: "
+        raise CodexWorkspacesError(f"Workspace name cannot be {name}")
+    if not WORKSPACE_RE.match(name):
+        raise CodexWorkspacesError(
+            "Workspace name can only contain letters, numbers, dots, underscores, and hyphens: "
             + name
         )
 
 
-def account_dir(config: Config, name: str) -> Path:
-    clean_name = strip_account_name(name)
-    validate_account_name(clean_name)
-    return Path(config.account_prefix + clean_name)
+def workspace_dir(config: Config, name: str) -> Path:
+    clean_name = strip_workspace_name(name)
+    validate_workspace_name(clean_name)
+    return Path(config.workspace_prefix + clean_name)
 
 
 @dataclass(frozen=True)
@@ -48,7 +48,7 @@ class CurrentTarget:
     path: Optional[Path] = None
 
 
-class AccountManager:
+class WorkspaceManager:
     def __init__(
         self,
         config: Config,
@@ -68,7 +68,7 @@ class AccountManager:
         return zh if self.is_zh() else en
 
     def fail(self, zh: str, en: str) -> None:
-        raise CodexAccountsError(self.message(zh, en))
+        raise CodexWorkspacesError(self.message(zh, en))
 
     def info(self, text: str = "") -> None:
         print(text, file=self.stdout)
@@ -77,8 +77,8 @@ class AccountManager:
         isatty = getattr(self.stdout, "isatty", lambda: False)
         return f"\033[1m{text}\033[0m" if isatty() else text
 
-    def account_dir(self, name: str) -> Path:
-        return account_dir(self.config, name)
+    def workspace_dir(self, name: str) -> Path:
+        return workspace_dir(self.config, name)
 
     def real_dir(self, path: Path) -> Path:
         if self.platform.is_directory_link(path):
@@ -95,8 +95,8 @@ class AccountManager:
             return CurrentTarget("not-a-link", active)
         return CurrentTarget("missing")
 
-    def account_dirs(self) -> List[Path]:
-        dirs = [Path(path) for path in glob.glob(self.config.account_prefix + "*")]
+    def workspace_dirs(self) -> List[Path]:
+        dirs = [Path(path) for path in glob.glob(self.config.workspace_prefix + "*")]
         return sorted(path for path in dirs if path.is_dir())
 
     def same_path(self, left: Path, right: Path) -> bool:
@@ -105,18 +105,18 @@ class AccountManager:
         return left_s == right_s
 
     def current_name(self, target: Path) -> Optional[str]:
-        for directory in self.account_dirs():
+        for directory in self.workspace_dirs():
             if self.same_path(self.real_dir(directory), target):
-                return strip_account_name(str(directory))
+                return strip_workspace_name(str(directory))
         return None
 
-    def list_accounts(self) -> None:
+    def list_workspaces(self) -> None:
         current = self.current_target()
-        self.info(self.bold(self.message("Codex 账号", "Codex accounts")))
+        self.info(self.bold(self.message("Codex 工作区", "Codex workspaces")))
         found = False
-        for directory in self.account_dirs():
+        for directory in self.workspace_dirs():
             found = True
-            name = strip_account_name(str(directory))
+            name = strip_workspace_name(str(directory))
             marker = " "
             if current.kind == "target" and current.path:
                 marker = "*" if self.same_path(self.real_dir(directory), current.path) else " "
@@ -125,8 +125,8 @@ class AccountManager:
         if not found:
             self.info(
                 self.message(
-                    "未找到账号目录。可以先执行: codex-accounts create work",
-                    "No account directories found. You can create one with: codex-accounts create work",
+                    "未找到工作区目录。可以先执行: codex-workspaces create work",
+                    "No workspace directories found. You can create one with: codex-workspaces create work",
                 )
             )
 
@@ -150,15 +150,15 @@ class AccountManager:
             if name:
                 self.info(
                     self.message(
-                        f"当前账号: {name} -> {current.path}",
-                        f"Current account: {name} -> {current.path}",
+                        f"当前工作区: {name} -> {current.path}",
+                        f"Current workspace: {name} -> {current.path}",
                     )
                 )
             else:
                 self.info(
                     self.message(
-                        f"当前账号: 未匹配到账号目录 -> {current.path}",
-                        f"Current account: no matching account directory -> {current.path}",
+                        f"当前工作区: 未匹配到工作区目录 -> {current.path}",
+                        f"Current workspace: no matching workspace directory -> {current.path}",
                     )
                 )
 
@@ -192,8 +192,8 @@ class AccountManager:
 
         if not self.platform.supports_app_control:
             self.fail(
-                "当前平台不支持自动关闭 Codex App。切换账号时可使用 --no-stop。",
-                "App stop is only supported on macOS. Use --no-stop when switching accounts on this platform.",
+                "当前平台不支持自动关闭 Codex App。切换工作区时可使用 --no-stop。",
+                "App stop is only supported on macOS. Use --no-stop when switching workspaces on this platform.",
             )
         self.platform.stop_app(
             self.config.app_name,
@@ -233,8 +233,8 @@ class AccountManager:
             "stop": "关闭 Codex",
             "start": "启动 Codex",
             "restart": "重启 Codex",
-            "switch": "切换账号",
-            "migration": "迁移账号目录",
+            "switch": "切换工作区",
+            "migration": "迁移工作区目录",
         }
         self.fail(
             f"不能在 Codex 内置 Terminal 中执行{zh_actions.get(action, action)}。请打开外部系统 Terminal，在 Codex 外部运行该命令。",
@@ -254,7 +254,7 @@ class AccountManager:
                 f"Cannot confirm whether {self.config.app_name} is running. To avoid corrupting config files, confirm {self.config.app_name} is closed from an external terminal before migration.",
             )
 
-    def switch_account(self, name: str, args: Sequence[str], original_argv: Sequence[str]) -> None:
+    def switch_workspace(self, name: str, args: Sequence[str], original_argv: Sequence[str]) -> None:
         stop_first = True
         start_after = True
         force = False
@@ -275,20 +275,20 @@ class AccountManager:
             if self.platform.supports_external_terminal_delegation:
                 self.platform.delegate_to_external_terminal(
                     self.config,
-                    self.message("切换账号", "switch accounts"),
+                    self.message("切换工作区", "switch workspaces"),
                     original_argv,
                     self.stdout,
                 )
                 return
             self.require_external_terminal("switch")
 
-        clean_name = strip_account_name(name)
-        validate_account_name(clean_name)
-        directory = self.account_dir(clean_name)
+        clean_name = strip_workspace_name(name)
+        validate_workspace_name(clean_name)
+        directory = self.workspace_dir(clean_name)
         if not directory.is_dir():
             self.fail(
-                f"账号不存在: {directory}。可先执行: codex-accounts create {clean_name}",
-                f"Account does not exist: {directory}. You can create it with: codex-accounts create {clean_name}",
+                f"工作区不存在: {directory}。可先执行: codex-workspaces create {clean_name}",
+                f"Workspace does not exist: {directory}. You can create it with: codex-workspaces create {clean_name}",
             )
 
         active = self.config.active_link
@@ -304,8 +304,8 @@ class AccountManager:
             else:
                 self.info(
                     self.message(
-                        "当前平台不支持自动关闭 Codex App，继续只切换账号链接。",
-                        "App stop is not supported on this platform; continuing with the account link switch.",
+                        "当前平台不支持自动关闭 Codex App，继续只切换工作区链接。",
+                        "App stop is not supported on this platform; continuing with the workspace link switch.",
                     )
                 )
 
@@ -321,12 +321,12 @@ class AccountManager:
             else:
                 self.info(
                     self.message(
-                        "当前平台不支持自动启动 Codex App，账号链接已完成切换。",
-                        "App start is not supported on this platform; the account link has been switched.",
+                        "当前平台不支持自动启动 Codex App，工作区链接已完成切换。",
+                        "App start is not supported on this platform; the workspace link has been switched.",
                     )
                 )
 
-    def create_account(self, name: str, args: Sequence[str]) -> None:
+    def create_workspace(self, name: str, args: Sequence[str]) -> None:
         migrate_current = False
         for arg in args:
             if arg in {"--migrate-current", "--migrate"}:
@@ -339,15 +339,15 @@ class AccountManager:
 
         if not name:
             self.fail(
-                "缺少账号名，例如: codex-accounts create work",
-                "Missing account name, for example: codex-accounts create work",
+                "缺少工作区名，例如: codex-workspaces create work",
+                "Missing workspace name, for example: codex-workspaces create work",
             )
 
-        clean_name = strip_account_name(name)
-        validate_account_name(clean_name)
-        directory = self.account_dir(clean_name)
+        clean_name = strip_workspace_name(name)
+        validate_workspace_name(clean_name)
+        directory = self.workspace_dir(clean_name)
         if directory.exists():
-            self.fail(f"账号目录已存在: {directory}", f"Account directory already exists: {directory}")
+            self.fail(f"工作区目录已存在: {directory}", f"Workspace directory already exists: {directory}")
 
         if migrate_current:
             self.require_external_terminal("migration")
@@ -368,31 +368,31 @@ class AccountManager:
             directory.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(active), str(directory))
             self.platform.create_directory_link(directory, active)
-            self.info(self.message(f"已迁移当前账号: {active} -> {directory}", f"Migrated current account: {active} -> {directory}"))
+            self.info(self.message(f"已迁移当前工作区: {active} -> {directory}", f"Migrated current workspace: {active} -> {directory}"))
             return
 
         directory.mkdir(parents=True, exist_ok=False)
-        self.info(self.message(f"已创建账号目录: {directory}", f"Created account directory: {directory}"))
+        self.info(self.message(f"已创建工作区目录: {directory}", f"Created workspace directory: {directory}"))
 
     def install_self(self, destination: Optional[str] = None) -> None:
         dest = Path(destination) if destination else self.default_install_dir()
         if dest is None:
             self.fail(
-                "无法判断安装目录，请指定，例如: codex-accounts install /usr/local/bin",
-                "Could not choose an install directory. Please specify one, for example: codex-accounts install /usr/local/bin",
+                "无法判断安装目录，请指定，例如: codex-workspaces install /usr/local/bin",
+                "Could not choose an install directory. Please specify one, for example: codex-workspaces install /usr/local/bin",
             )
         dest.mkdir(parents=True, exist_ok=True)
         if self.platform.is_windows:
-            launcher = dest / "codex-accounts.cmd"
+            launcher = dest / "codex-workspaces.cmd"
             launcher.write_text(
-                f'@echo off\r\n"{sys.executable}" -m codex_accounts %*\r\n',
+                f'@echo off\r\n"{sys.executable}" -m codex_workspaces %*\r\n',
                 encoding="utf-8",
             )
         else:
-            launcher = dest / "codex-accounts"
+            launcher = dest / "codex-workspaces"
             launcher.write_text(
                 "#!/usr/bin/env sh\n"
-                f"exec {shlex.quote(sys.executable)} -m codex_accounts \"$@\"\n",
+                f"exec {shlex.quote(sys.executable)} -m codex_workspaces \"$@\"\n",
                 encoding="utf-8",
             )
             launcher.chmod(0o755)
@@ -436,98 +436,96 @@ class AccountManager:
 
 def usage(lang: str) -> str:
     if lang == "zh":
-        return """codex-accounts - Codex 多账号切换工具
+        return """codex-workspaces - Codex 多工作区切换工具
 
-账号约定:
-  当前账号: ~/.codex                 软链接/目录链接
-  账号目录: ~/.codex-work            账号名 work
-            ~/.codex-personal        账号名 personal
+工作区约定:
+  当前工作区: ~/.codex                 软链接/目录链接
+  工作区目录: ~/.codex-work            工作区名 work
+            ~/.codex-personal        工作区名 personal
 
 用法:
-  codex-accounts list | ls
-      查看所有账号目录，并标出当前账号。
+  codex-workspaces list | ls
+      查看所有工作区目录，并标出当前工作区。
 
-  codex-accounts current
-      显示当前 ~/.codex 指向哪个账号。
+  codex-workspaces current
+      显示当前 ~/.codex 指向哪个工作区。
 
-  codex-accounts use <账号名> [--no-stop] [--no-start] [--force]
-  codex-accounts switch <账号名> [--no-stop] [--no-start] [--force]
-  codex-accounts <账号名>
-      切换 ~/.codex 链接到指定账号目录。
-      macOS 上默认会关闭 Codex App、切换账号、再启动 Codex App。
-      Linux/Windows 上会跳过 App 启停，只切换账号链接。
+  codex-workspaces use <工作区名> [--no-stop] [--no-start] [--force]
+  codex-workspaces switch <工作区名> [--no-stop] [--no-start] [--force]
+  codex-workspaces <工作区名>
+      切换 ~/.codex 链接到指定工作区目录。
+      macOS 上默认会关闭 Codex App、切换工作区、再启动 Codex App。
+      Linux/Windows 上会跳过 App 启停，只切换工作区链接。
 
-  codex-accounts stop [--force]
+  codex-workspaces stop [--force]
       关闭 Codex App。当前仅支持 macOS。
 
-  codex-accounts start
+  codex-workspaces start
       启动 Codex App。当前仅支持 macOS。
 
-  codex-accounts restart [--force]
+  codex-workspaces restart [--force]
       重启 Codex App。当前仅支持 macOS。
 
-  codex-accounts create <账号名> [--migrate-current]
-      创建新的账号目录 ~/.codex-<账号名>。
-      加 --migrate-current 可将已有的真实 ~/.codex 目录迁移为该账号。
+  codex-workspaces create <工作区名> [--migrate-current]
+      创建新的工作区目录 ~/.codex-<工作区名>。
+      加 --migrate-current 可将已有的真实 ~/.codex 目录迁移为该工作区。
 
-  codex-accounts install [目录]
+  codex-workspaces install [目录]
       安装 Python 启动器到 PATH 目录。推荐优先使用 pipx 或 pip 安装。
 
-  codex-accounts help
+  codex-workspaces help
       显示帮助。
 
 环境变量:
   CODEX_APP_NAME        App 名称，默认 Codex
   CODEX_QUIT_TIMEOUT    等待 App 退出秒数，默认 20
-  CODEX_ACCOUNTS_LINK   当前账号链接，默认 ~/.codex
-  CODEX_ACCOUNTS_PREFIX 账号目录前缀，默认 ~/.codex-
-  CODEX_ACCOUNTS_LANG   强制提示语言，可设为 zh 或 en
-  兼容旧变量: CODEX_ACCOUNT_LINK / CODEX_ACCOUNT_PREFIX / CODEX_ACCOUNT_LANG"""
+  CODEX_WORKSPACES_LINK   当前工作区链接，默认 ~/.codex
+  CODEX_WORKSPACES_PREFIX 工作区目录前缀，默认 ~/.codex-
+  CODEX_WORKSPACES_LANG   强制提示语言，可设为 zh 或 en"""
 
-    return """codex-accounts - Codex multi-account switcher
+    return """codex-workspaces - Codex multi-workspace switcher
 
-Account layout:
-  Active account: ~/.codex                 symlink/directory link
-  Account dirs:   ~/.codex-work            account name: work
-                  ~/.codex-personal        account name: personal
+Workspace layout:
+  Active workspace: ~/.codex                 symlink/directory link
+  Workspace dirs:   ~/.codex-work            workspace name: work
+                  ~/.codex-personal        workspace name: personal
 
 Usage:
-  codex-accounts list | ls
-      List all account directories and mark the active account.
+  codex-workspaces list | ls
+      List all workspace directories and mark the active workspace.
 
-  codex-accounts current
+  codex-workspaces current
       Show where ~/.codex currently points.
 
-  codex-accounts use <account> [--no-stop] [--no-start] [--force]
-  codex-accounts switch <account> [--no-stop] [--no-start] [--force]
-  codex-accounts <account>
-      Switch the ~/.codex link to the selected account directory.
-      On macOS this quits Codex App, switches the account, then starts Codex App.
-      On Linux and Windows app control is skipped and only the account link changes.
+  codex-workspaces use <workspace> [--no-stop] [--no-start] [--force]
+  codex-workspaces switch <workspace> [--no-stop] [--no-start] [--force]
+  codex-workspaces <workspace>
+      Switch the ~/.codex link to the selected workspace directory.
+      On macOS this quits Codex App, switches the workspace, then starts Codex App.
+      On Linux and Windows app control is skipped and only the workspace link changes.
 
-  codex-accounts stop [--force]
+  codex-workspaces stop [--force]
       Quit Codex App. Currently supported on macOS only.
 
-  codex-accounts start
+  codex-workspaces start
       Start Codex App. Currently supported on macOS only.
 
-  codex-accounts restart [--force]
+  codex-workspaces restart [--force]
       Restart Codex App. Currently supported on macOS only.
 
-  codex-accounts create <account> [--migrate-current]
-      Create a new account directory ~/.codex-<account>.
+  codex-workspaces create <workspace> [--migrate-current]
+      Create a new workspace directory ~/.codex-<workspace>.
       Add --migrate-current to migrate an existing real ~/.codex directory.
 
-  codex-accounts install [directory]
+  codex-workspaces install [directory]
       Install a Python launcher into a PATH directory. pipx or pip is preferred.
 
-  codex-accounts help
+  codex-workspaces help
       Show this help.
 
 Environment variables:
   CODEX_APP_NAME        App name, default: Codex
   CODEX_QUIT_TIMEOUT    Seconds to wait for app exit, default: 20
-  CODEX_ACCOUNTS_LINK   Active account link, default: ~/.codex
-  CODEX_ACCOUNTS_PREFIX Account directory prefix, default: ~/.codex-
-  CODEX_ACCOUNTS_LANG   Force output language: zh or en
-  Legacy aliases: CODEX_ACCOUNT_LINK / CODEX_ACCOUNT_PREFIX / CODEX_ACCOUNT_LANG"""
+  CODEX_WORKSPACES_LINK   Active workspace link, default: ~/.codex
+  CODEX_WORKSPACES_PREFIX Workspace directory prefix, default: ~/.codex-
+  CODEX_WORKSPACES_LANG   Force output language: zh or en"""

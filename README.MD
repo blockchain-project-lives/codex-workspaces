@@ -1,24 +1,24 @@
-# codex-accounts
+# codex-workspaces
 
 English | [简体中文](README.zh-CN.md) | [Changelog](CHANGELOG.md)
 
-`codex-accounts` switches between multiple Codex account directories by keeping each account in `~/.codex-<name>` and pointing the active `~/.codex` path at the selected account.
+`codex-workspaces` switches between multiple Codex workspace directories by keeping each workspace in `~/.codex-<name>` and pointing the active `~/.codex` path at the selected workspace.
 
 The project now has two entry points:
 
 - A cross-platform Python 3 CLI for Linux, macOS, and Windows.
-- The original macOS Bash script, still kept at [`codex-accounts`](codex-accounts), for users who installed the shell workflow directly.
+- The original macOS Bash script, still kept at [`codex-workspaces`](codex-workspaces), for users who installed the shell workflow directly.
 
-On macOS, the Python CLI preserves the original app workflow: stop Codex App, switch the account link, and start Codex App again. On Linux and Windows, app control is skipped and the CLI only switches the account link.
+On macOS, the Python CLI preserves the original app workflow: stop Codex App, switch the workspace link, and start Codex App again. On Linux and Windows, app control is skipped and the CLI only switches the workspace link.
 
 ## Features
 
-- Manage account directories such as `~/.codex-work` and `~/.codex-personal`.
+- Manage workspace directories such as `~/.codex-work` and `~/.codex-personal`.
 - Switch the active `~/.codex` symlink or directory link.
-- Create account directories and migrate an existing real `~/.codex` directory.
+- Create workspace directories and migrate an existing real `~/.codex` directory.
 - Keep macOS Codex App stop/start/restart support.
 - Block unsafe operations from a detected Codex built-in terminal when they cannot be delegated safely.
-- Support English and Chinese output through `CODEX_ACCOUNTS_LANG`.
+- Support English and Chinese output through `CODEX_WORKSPACES_LANG`.
 - Package as a Python project with tests, CI, and PyPI publishing workflow.
 
 ## Requirements
@@ -33,13 +33,13 @@ On macOS, the Python CLI preserves the original app workflow: stop Codex App, sw
 Install the Python CLI from PyPI:
 
 ```bash
-python3 -m pip install codex-accounts
+python3 -m pip install codex-workspaces
 ```
 
 For isolated CLI installs, `pipx` is recommended:
 
 ```bash
-pipx install codex-accounts
+pipx install codex-workspaces
 ```
 
 Install from a local checkout for development:
@@ -51,63 +51,63 @@ python3 -m pip install -e ".[dev]"
 The legacy macOS shell installer is still available:
 
 ```bash
-tmp="$(mktemp -t codex-accounts.XXXXXX)" && curl -fsSL https://raw.githubusercontent.com/blockchain-project-lives/codex-accounts/main/codex-accounts -o "$tmp" && bash "$tmp" install && rm -f "$tmp"
+tmp="$(mktemp -t codex-workspaces.XXXXXX)" && curl -fsSL https://raw.githubusercontent.com/blockchain-project-lives/codex-workspaces/main/codex-workspaces -o "$tmp" && bash "$tmp" install && rm -f "$tmp"
 ```
 
-## Account Layout
+## Workspace Layout
 
 Default layout:
 
 ```text
-~/.codex           -> active account link
-~/.codex-work      account directory named work
-~/.codex-personal  account directory named personal
+~/.codex           -> active workspace link
+~/.codex-work      workspace directory named work
+~/.codex-personal  workspace directory named personal
 ```
 
-Customize paths with `CODEX_ACCOUNTS_LINK` and `CODEX_ACCOUNTS_PREFIX`.
+Customize paths with `CODEX_WORKSPACES_LINK` and `CODEX_WORKSPACES_PREFIX`.
 
 ## Usage
 
-Create accounts:
+Create workspaces:
 
 ```bash
-codex-accounts create personal
-codex-accounts create work
+codex-workspaces create personal
+codex-workspaces create work
 ```
 
 If you already have a real `~/.codex` directory, migrate it first:
 
 ```bash
-codex-accounts create personal --migrate-current
+codex-workspaces create personal --migrate-current
 ```
 
-Switch accounts:
+Switch workspaces:
 
 ```bash
-codex-accounts work
-codex-accounts use personal
-codex-accounts switch work
+codex-workspaces work
+codex-workspaces use personal
+codex-workspaces switch work
 ```
 
 On macOS, switching stops and restarts Codex App by default. Skip those steps when needed:
 
 ```bash
-codex-accounts work --no-stop --no-start
+codex-workspaces work --no-stop --no-start
 ```
 
-Inspect accounts:
+Inspect workspaces:
 
 ```bash
-codex-accounts list
-codex-accounts current
+codex-workspaces list
+codex-workspaces current
 ```
 
 Control Codex App on macOS:
 
 ```bash
-codex-accounts stop
-codex-accounts start
-codex-accounts restart
+codex-workspaces stop
+codex-workspaces start
+codex-workspaces restart
 ```
 
 ## Environment Variables
@@ -116,11 +116,11 @@ codex-accounts restart
 | --- | --- | --- |
 | `CODEX_APP_NAME` | `Codex` | macOS app name to control. |
 | `CODEX_QUIT_TIMEOUT` | `20` | Seconds to wait for app exit. |
-| `CODEX_ACCOUNTS_LINK` | `$HOME/.codex` | Active account link path. |
-| `CODEX_ACCOUNTS_PREFIX` | `$HOME/.codex-` | Account directory prefix. |
-| `CODEX_ACCOUNTS_LANG` | auto | Force output language with `en` or `zh`. |
+| `CODEX_WORKSPACES_LINK` | `$HOME/.codex` | Active workspace link path. |
+| `CODEX_WORKSPACES_PREFIX` | `$HOME/.codex-` | Workspace directory prefix. |
+| `CODEX_WORKSPACES_LANG` | auto | Force output language with `en` or `zh`. |
 
-Legacy aliases `CODEX_ACCOUNT_LINK`, `CODEX_ACCOUNT_PREFIX`, and `CODEX_ACCOUNT_LANG` are still honored.
+Only the `CODEX_WORKSPACES_*` variables are used for workspace-specific configuration.
 
 ## Development
 

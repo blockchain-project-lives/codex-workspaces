@@ -1,39 +1,39 @@
-# codex-accounts Python 版设计文档
+# codex-workspaces Python 版设计文档
 
 ## 背景
 
-原项目是 macOS Bash 脚本，核心能力是切换 `~/.codex` 到不同账号目录。脚本还负责关闭、启动 Codex App，并在 Codex 内置 Terminal 中把危险命令转交给 Terminal.app。
+原项目是 macOS Bash 脚本，核心能力是切换 `~/.codex` 到不同工作区目录。脚本还负责关闭、启动 Codex App，并在 Codex 内置 Terminal 中把危险命令转交给 Terminal.app。
 
 Python 版的目标是在保留 shell 脚本的情况下，提供可测试、可打包、可在 Linux/macOS/Windows 使用的 CLI。
 
 ## 目标
 
-- 保持现有命令语义：`list`、`current`、`create`、`switch/use`、账号名快捷切换、`stop/start/restart`。
-- 账号目录管理跨平台可用。
+- 保持现有命令语义：`list`、`current`、`create`、`switch/use`、工作区名快捷切换、`stop/start/restart`。
+- 工作区目录管理跨平台可用。
 - macOS App 控制保留原行为。
-- 非 macOS 平台不执行 App 启停，只切换账号链接。
-- 支持 PyPI 安装和 `python -m codex_accounts`。
+- 非 macOS 平台不执行 App 启停，只切换工作区链接。
+- 支持 PyPI 安装和 `python -m codex_workspaces`。
 - 核心逻辑可单元测试，不依赖真实 Codex App。
 
 ## 非目标
 
 - 不读取、修改或解析 Codex 配置文件内容。
-- 不同步账号数据，不做备份恢复系统。
+- 不同步工作区数据，不做备份恢复系统。
 - 不在 Linux/Windows 上模拟 Codex App 启停。
-- 不删除任何账号目录，切换时只替换当前账号链接。
+- 不删除任何工作区目录，切换时只替换当前工作区链接。
 
 ## 代码结构
 
 ```text
-src/codex_accounts/
+src/codex_workspaces/
   cli.py         命令分发和进程入口
   config.py      环境变量、默认路径、语言检测
-  core.py        账号目录、链接切换、迁移和安装器逻辑
+  core.py        工作区目录、链接切换、迁移和安装器逻辑
   platforms.py   平台差异：App 控制、Terminal 转交、目录链接
   errors.py      可预期命令错误
 ```
 
-根目录的 `codex-accounts` Bash 脚本继续保留，供 macOS shell 用户使用。Python 包通过 `pyproject.toml` 暴露同名 console script。
+根目录的 `codex-workspaces` Bash 脚本继续保留，供 macOS shell 用户使用。Python 包通过 `pyproject.toml` 暴露同名 console script。
 
 ## 数据模型
 
@@ -41,15 +41,15 @@ src/codex_accounts/
 
 ```text
 active_link:    ~/.codex
-account_prefix: ~/.codex-
-account_dir:    ~/.codex-<name>
+workspace_prefix: ~/.codex-
+workspace_dir:    ~/.codex-<name>
 ```
 
-账号名规则：
+工作区名规则：
 
 - 允许字母、数字、点、下划线、连字符。
 - 不允许空字符串、`.`、`..`。
-- 输入可以是 `work`、`.codex-work` 或路径形式，内部会归一化成账号名。
+- 输入可以是 `work`、`.codex-work` 或路径形式，内部会归一化成工作区名。
 
 ## 平台策略
 
@@ -62,7 +62,7 @@ macOS：
 
 Linux：
 
-- 账号切换使用目录软链接。
+- 工作区切换使用目录软链接。
 - `switch` 默认跳过 App stop/start，并输出提示。
 - 直接执行 `stop/start/restart` 会报“仅 macOS 支持”。
 
@@ -79,21 +79,20 @@ Windows：
 - `create --migrate-current` 只迁移真实目录，不迁移已有链接。
 - macOS 上迁移前必须确认 Codex App 未运行。
 - Codex 内置 Terminal 中的危险命令要么转交外部 Terminal，要么拒绝。
-- 任何切换都只替换 active link，不删除 `~/.codex-<name>` 账号目录。
+- 任何切换都只替换 active link，不删除 `~/.codex-<name>` 工作区目录。
 
-## 兼容性
+## 配置
 
-环境变量保持兼容：
+工作区相关环境变量：
 
-- 新变量：`CODEX_ACCOUNTS_LINK`、`CODEX_ACCOUNTS_PREFIX`、`CODEX_ACCOUNTS_LANG`。
-- 旧变量：`CODEX_ACCOUNT_LINK`、`CODEX_ACCOUNT_PREFIX`、`CODEX_ACCOUNT_LANG`。
+- 变量：`CODEX_WORKSPACES_LINK`、`CODEX_WORKSPACES_PREFIX`、`CODEX_WORKSPACES_LANG`。
 
-Python CLI 和 Bash 脚本可以共存。通过 PyPI/pipx 安装时，`codex-accounts` 命令来自 Python 包；直接执行仓库根目录 `./codex-accounts` 时，仍是 Bash 脚本。
+Python CLI 和 Bash 脚本可以共存。通过 PyPI/pipx 安装时，`codex-workspaces` 命令来自 Python 包；直接执行仓库根目录 `./codex-workspaces` 时，仍是 Bash 脚本。
 
 ## 发布设计
 
 - `pyproject.toml` 使用 setuptools 构建 wheel 和 sdist。
-- console script：`codex-accounts = codex_accounts.cli:main`。
+- console script：`codex-workspaces = codex_workspaces.cli:main`。
 - sdist 通过 `MANIFEST.in` 包含 README、CHANGELOG、docs、tests 和原 Bash 脚本。
 - GitHub CI 负责多平台测试和包检查。
 - GitHub Release 触发 PyPI Trusted Publishing。

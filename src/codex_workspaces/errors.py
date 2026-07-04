@@ -1,4 +1,4 @@
-class CodexAccountsError(Exception):
+class CodexWorkspacesError(Exception):
     """Base error for expected command failures."""
 
     def __init__(self, message: str, exit_code: int = 1) -> None:

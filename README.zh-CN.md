@@ -1,24 +1,24 @@
-# codex-accounts
+# codex-workspaces
 
 [English](README.MD) | 简体中文 | [更新日志](CHANGELOG.md)
 
-`codex-accounts` 用来切换多个 Codex 账号目录。默认把每个账号放在 `~/.codex-<账号名>`，并让当前生效的 `~/.codex` 指向选中的账号。
+`codex-workspaces` 用来切换多个 Codex 工作区目录。默认把每个工作区放在 `~/.codex-<工作区名>`，并让当前生效的 `~/.codex` 指向选中的工作区。
 
 项目现在有两个入口：
 
 - 跨平台 Python 3 CLI，支持 Linux、macOS 和 Windows。
-- 原来的 macOS Bash 脚本，仍保留在 [`codex-accounts`](codex-accounts)，兼容已经使用 shell 安装方式的用户。
+- 原来的 macOS Bash 脚本，仍保留在 [`codex-workspaces`](codex-workspaces)，兼容已经使用 shell 安装方式的用户。
 
-在 macOS 上，Python CLI 保留原来的 App 流程：关闭 Codex App、切换账号链接、再启动 Codex App。在 Linux 和 Windows 上，CLI 会跳过 App 启停，只切换账号链接。
+在 macOS 上，Python CLI 保留原来的 App 流程：关闭 Codex App、切换工作区链接、再启动 Codex App。在 Linux 和 Windows 上，CLI 会跳过 App 启停，只切换工作区链接。
 
 ## 功能
 
-- 管理 `~/.codex-work`、`~/.codex-personal` 这类账号目录。
+- 管理 `~/.codex-work`、`~/.codex-personal` 这类工作区目录。
 - 切换当前 `~/.codex` 软链接或目录链接。
-- 创建账号目录，并支持把已有真实 `~/.codex` 目录迁移成账号。
+- 创建工作区目录，并支持把已有真实 `~/.codex` 目录迁移成工作区。
 - 保留 macOS 上 Codex App 的 `stop`、`start`、`restart`。
 - 在检测到 Codex 内置 Terminal 且无法安全转交时，阻止危险操作。
-- 支持中英文输出，可通过 `CODEX_ACCOUNTS_LANG` 指定。
+- 支持中英文输出，可通过 `CODEX_WORKSPACES_LANG` 指定。
 - 提供 Python 包、测试、GitHub CI 和 PyPI 发布工作流。
 
 ## 要求
@@ -33,13 +33,13 @@
 从 PyPI 安装 Python CLI：
 
 ```bash
-python3 -m pip install codex-accounts
+python3 -m pip install codex-workspaces
 ```
 
 推荐用 `pipx` 做隔离安装：
 
 ```bash
-pipx install codex-accounts
+pipx install codex-workspaces
 ```
 
 本地开发安装：
@@ -51,63 +51,63 @@ python3 -m pip install -e ".[dev]"
 旧版 macOS shell 安装方式仍可使用：
 
 ```bash
-tmp="$(mktemp -t codex-accounts.XXXXXX)" && curl -fsSL https://raw.githubusercontent.com/blockchain-project-lives/codex-accounts/main/codex-accounts -o "$tmp" && bash "$tmp" install && rm -f "$tmp"
+tmp="$(mktemp -t codex-workspaces.XXXXXX)" && curl -fsSL https://raw.githubusercontent.com/blockchain-project-lives/codex-workspaces/main/codex-workspaces -o "$tmp" && bash "$tmp" install && rm -f "$tmp"
 ```
 
-## 账号目录
+## 工作区目录
 
 默认布局：
 
 ```text
-~/.codex           -> 当前账号链接
-~/.codex-work      名为 work 的账号目录
-~/.codex-personal  名为 personal 的账号目录
+~/.codex           -> 当前工作区链接
+~/.codex-work      名为 work 的工作区目录
+~/.codex-personal  名为 personal 的工作区目录
 ```
 
-可通过 `CODEX_ACCOUNTS_LINK` 和 `CODEX_ACCOUNTS_PREFIX` 自定义路径。
+可通过 `CODEX_WORKSPACES_LINK` 和 `CODEX_WORKSPACES_PREFIX` 自定义路径。
 
 ## 使用
 
-创建账号：
+创建工作区：
 
 ```bash
-codex-accounts create personal
-codex-accounts create work
+codex-workspaces create personal
+codex-workspaces create work
 ```
 
 如果已经有一个真实存在的 `~/.codex` 目录，先迁移：
 
 ```bash
-codex-accounts create personal --migrate-current
+codex-workspaces create personal --migrate-current
 ```
 
-切换账号：
+切换工作区：
 
 ```bash
-codex-accounts work
-codex-accounts use personal
-codex-accounts switch work
+codex-workspaces work
+codex-workspaces use personal
+codex-workspaces switch work
 ```
 
 macOS 上默认会在切换前后关闭和启动 Codex App。需要时可以跳过：
 
 ```bash
-codex-accounts work --no-stop --no-start
+codex-workspaces work --no-stop --no-start
 ```
 
-查看账号：
+查看工作区：
 
 ```bash
-codex-accounts list
-codex-accounts current
+codex-workspaces list
+codex-workspaces current
 ```
 
 macOS 上控制 Codex App：
 
 ```bash
-codex-accounts stop
-codex-accounts start
-codex-accounts restart
+codex-workspaces stop
+codex-workspaces start
+codex-workspaces restart
 ```
 
 ## 环境变量
@@ -116,11 +116,11 @@ codex-accounts restart
 | --- | --- | --- |
 | `CODEX_APP_NAME` | `Codex` | macOS App 名称。 |
 | `CODEX_QUIT_TIMEOUT` | `20` | 等待 App 退出的秒数。 |
-| `CODEX_ACCOUNTS_LINK` | `$HOME/.codex` | 当前账号链接路径。 |
-| `CODEX_ACCOUNTS_PREFIX` | `$HOME/.codex-` | 账号目录前缀。 |
-| `CODEX_ACCOUNTS_LANG` | 自动 | 强制输出语言，可设为 `en` 或 `zh`。 |
+| `CODEX_WORKSPACES_LINK` | `$HOME/.codex` | 当前工作区链接路径。 |
+| `CODEX_WORKSPACES_PREFIX` | `$HOME/.codex-` | 工作区目录前缀。 |
+| `CODEX_WORKSPACES_LANG` | 自动 | 强制输出语言，可设为 `en` 或 `zh`。 |
 
-兼容旧变量：`CODEX_ACCOUNT_LINK`、`CODEX_ACCOUNT_PREFIX`、`CODEX_ACCOUNT_LANG`。
+工作区相关配置只使用 `CODEX_WORKSPACES_*` 变量。
 
 ## 开发
 

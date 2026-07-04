@@ -1,8 +1,8 @@
-# codex-account
+# codex-accounts
 
 English | [Simplified Chinese](README.zh-CN.md) | [Changelog](CHANGELOG.md)
 
-`codex-account` is a small macOS shell utility for switching between multiple Codex app accounts. It keeps each account in its own `~/.codex-<name>` directory and makes the active `~/.codex` path point to the selected account with a symlink.
+`codex-accounts` is a small macOS shell utility for switching between multiple Codex app accounts. It keeps each account in its own `~/.codex-<name>` directory and makes the active `~/.codex` path point to the selected account with a symlink.
 
 It can gracefully quit the Codex app, switch the account link, and start Codex again in one command.
 
@@ -18,7 +18,7 @@ For safety, commands that would interrupt the running Codex app are handled care
 - Migrate an existing first-time `~/.codex` directory into a named account.
 - Delegate `stop`, `switch`, and `restart` to Terminal.app when they are run from a detected Codex terminal.
 - Refuse `start` and migration from a detected Codex terminal.
-- English and Chinese command output, auto-detected from the system language or forced with `CODEX_ACCOUNT_LANG`.
+- English and Chinese command output, auto-detected from the system language or forced with `CODEX_ACCOUNTS_LANG`.
 
 ## Requirements
 
@@ -33,20 +33,20 @@ If your app name is different, set `CODEX_APP_NAME`.
 Install directly from the `main` branch on a remote machine:
 
 ```bash
-tmp="$(mktemp -t codex-account.XXXXXX)" && curl -fsSL https://raw.githubusercontent.com/blockchain-project-lives/codex-account/main/codex-account -o "$tmp" && bash "$tmp" install && rm -f "$tmp"
+tmp="$(mktemp -t codex-accounts.XXXXXX)" && curl -fsSL https://raw.githubusercontent.com/blockchain-project-lives/codex-accounts/main/codex-accounts -o "$tmp" && bash "$tmp" install && rm -f "$tmp"
 ```
 
 By default, the installer chooses a writable directory that is already in `PATH` when possible. You can also choose the destination explicitly:
 
 ```bash
-tmp="$(mktemp -t codex-account.XXXXXX)" && curl -fsSL https://raw.githubusercontent.com/blockchain-project-lives/codex-account/main/codex-account -o "$tmp" && bash "$tmp" install "$HOME/.local/bin" && rm -f "$tmp"
+tmp="$(mktemp -t codex-accounts.XXXXXX)" && curl -fsSL https://raw.githubusercontent.com/blockchain-project-lives/codex-accounts/main/codex-accounts -o "$tmp" && bash "$tmp" install "$HOME/.local/bin" && rm -f "$tmp"
 ```
 
 The command downloads the script to a temporary file before running `install` because the installer copies the script file itself.
 
 ## Account Layout
 
-`codex-account` uses this layout by default:
+`codex-accounts` uses this layout by default:
 
 ```text
 ~/.codex           -> symlink to the active account directory
@@ -63,13 +63,13 @@ If you already have a real `~/.codex` directory, migrate it into the account lay
 First open an external system Terminal window and quit Codex:
 
 ```bash
-codex-account stop
+codex-accounts stop
 ```
 
 Then migrate the existing directory:
 
 ```bash
-codex-account create personal --migrate-current
+codex-accounts create personal --migrate-current
 ```
 
 This moves the existing `~/.codex` directory to `~/.codex-personal`, then creates a new `~/.codex` symlink pointing to it.
@@ -81,16 +81,16 @@ Do not run migration from the built-in Codex terminal. The script checks common 
 Then create another account directory when needed:
 
 ```bash
-codex-account create work
+codex-accounts create work
 ```
 
 Switch to it:
 
 ```bash
-codex-account work
+codex-accounts work
 ```
 
-If `~/.codex` exists and is not a symlink, `codex-account` refuses to switch accounts so it does not accidentally remove your existing data.
+If `~/.codex` exists and is not a symlink, `codex-accounts` refuses to switch accounts so it does not accidentally remove your existing data.
 
 ## Usage
 
@@ -99,66 +99,66 @@ The built-in Codex terminal can run safe commands such as `list`, `current`, and
 List accounts:
 
 ```bash
-codex-account list
+codex-accounts list
 ```
 
 Show the current account:
 
 ```bash
-codex-account current
+codex-accounts current
 ```
 
 Create an account:
 
 ```bash
-codex-account create work
+codex-accounts create work
 ```
 
 Migrate the existing real `~/.codex` directory into a new account:
 
 ```bash
-codex-account stop
-codex-account create personal --migrate-current
+codex-accounts stop
+codex-accounts create personal --migrate-current
 ```
 
 Switch accounts:
 
 ```bash
-codex-account work
-codex-account use personal
-codex-account switch work
+codex-accounts work
+codex-accounts use personal
+codex-accounts switch work
 ```
 
 Switch without starting Codex afterwards:
 
 ```bash
-codex-account personal --no-start
+codex-accounts personal --no-start
 ```
 
 Switch without stopping Codex first:
 
 ```bash
-codex-account work --no-stop
+codex-accounts work --no-stop
 ```
 
 Force quit Codex if it does not exit before the timeout:
 
 ```bash
-codex-account work --force
+codex-accounts work --force
 ```
 
 Control the Codex app:
 
 ```bash
-codex-account stop
-codex-account start
-codex-account restart
+codex-accounts stop
+codex-accounts start
+codex-accounts restart
 ```
 
 Show help:
 
 ```bash
-codex-account help
+codex-accounts help
 ```
 
 ## Environment Variables
@@ -167,15 +167,17 @@ codex-account help
 | --- | --- | --- |
 | `CODEX_APP_NAME` | `Codex` | macOS app name to quit/start. |
 | `CODEX_QUIT_TIMEOUT` | `20` | Seconds to wait for the app to quit. |
-| `CODEX_ACCOUNT_LINK` | `$HOME/.codex` | Active account symlink path. |
-| `CODEX_ACCOUNT_PREFIX` | `$HOME/.codex-` | Prefix for account directories. |
-| `CODEX_ACCOUNT_LANG` | auto | Force output language with `en` or `zh`. |
+| `CODEX_ACCOUNTS_LINK` | `$HOME/.codex` | Active account symlink path. |
+| `CODEX_ACCOUNTS_PREFIX` | `$HOME/.codex-` | Prefix for account directories. |
+| `CODEX_ACCOUNTS_LANG` | auto | Force output language with `en` or `zh`. |
+
+Legacy aliases `CODEX_ACCOUNT_LINK`, `CODEX_ACCOUNT_PREFIX`, and `CODEX_ACCOUNT_LANG` are still honored for compatibility.
 
 Example:
 
 ```bash
-CODEX_ACCOUNT_LANG=en codex-account list
-CODEX_APP_NAME="Codex" codex-account restart
+CODEX_ACCOUNTS_LANG=en codex-accounts list
+CODEX_APP_NAME="Codex" codex-accounts restart
 ```
 
 ## Notes

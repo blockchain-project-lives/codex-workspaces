@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to `codex-account` will be documented in this file.
+All notable changes to `codex-accounts` will be documented in this file.
 
 This project follows a simple changelog format while it is still pre-release.
 
@@ -8,16 +8,17 @@ This project follows a simple changelog format while it is still pre-release.
 
 ### Added
 
-- Added the `codex-account` macOS shell script for managing multiple Codex account directories.
+- Added the `codex-accounts` macOS shell script for managing multiple Codex account directories.
 - Added account listing with active account detection.
 - Added current account inspection.
 - Added account switching through the active `~/.codex` symlink.
 - Added Codex app stop, start, and restart commands.
-- Added account creation with `codex-account create <account>`.
-- Added first-time migration with `codex-account create <account> --migrate-current`.
+- Added account creation with `codex-accounts create <account>`.
+- Added first-time migration with `codex-accounts create <account> --migrate-current`.
 - Added `--migrate` as a short alias for `--migrate-current`.
-- Added self-install support with `codex-account install [directory]`.
-- Added English and Chinese command output, controlled by system language or `CODEX_ACCOUNT_LANG`.
+- Added self-install support with `codex-accounts install [directory]`.
+- Added English and Chinese command output, controlled by system language or `CODEX_ACCOUNTS_LANG`.
+- Kept legacy `CODEX_ACCOUNT_*` environment variable aliases for compatibility after renaming the command to `codex-accounts`.
 - Added English and Simplified Chinese README files.
 
 ### Safety

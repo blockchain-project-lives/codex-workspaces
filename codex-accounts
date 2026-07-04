@@ -3,12 +3,12 @@ set -euo pipefail
 
 APP_NAME="${CODEX_APP_NAME:-Codex}"
 HOME_DIR="${HOME:?HOME is not set}"
-ACTIVE_LINK="${CODEX_ACCOUNT_LINK:-$HOME_DIR/.codex}"
-ACCOUNT_PREFIX="${CODEX_ACCOUNT_PREFIX:-$HOME_DIR/.codex-}"
+ACTIVE_LINK="${CODEX_ACCOUNTS_LINK:-${CODEX_ACCOUNT_LINK:-$HOME_DIR/.codex}}"
+ACCOUNT_PREFIX="${CODEX_ACCOUNTS_PREFIX:-${CODEX_ACCOUNT_PREFIX:-$HOME_DIR/.codex-}}"
 QUIT_TIMEOUT="${CODEX_QUIT_TIMEOUT:-20}"
 
 detect_ui_lang() {
-  local forced="${CODEX_ACCOUNT_LANG:-}"
+  local forced="${CODEX_ACCOUNTS_LANG:-${CODEX_ACCOUNT_LANG:-}}"
   local apple_lang=""
   local env_lang=""
 
@@ -63,7 +63,7 @@ die() {
 usage() {
   if is_zh; then
   cat <<'USAGE'
-codex-account - Codex 多账号切换工具
+codex-accounts - Codex 多账号切换工具
 
 账号约定:
   当前账号: ~/.codex                 软链接
@@ -71,54 +71,55 @@ codex-account - Codex 多账号切换工具
             ~/.codex-personal        账号名 personal
 
 用法:
-  codex-account list | ls
+  codex-accounts list | ls
       查看所有账号目录，并标出当前账号。
 
-  codex-account current
+  codex-accounts current
       显示当前 ~/.codex 指向哪个账号。
 
-  codex-account use <账号名> [--no-stop] [--no-start] [--force]
-  codex-account switch <账号名> [--no-stop] [--no-start] [--force]
-  codex-account <账号名>
+  codex-accounts use <账号名> [--no-stop] [--no-start] [--force]
+  codex-accounts switch <账号名> [--no-stop] [--no-start] [--force]
+  codex-accounts <账号名>
       关闭 Codex App -> 切换 ~/.codex 软链接 -> 启动 Codex App。
       如在 Codex 内置 Terminal 中执行，会自动转交给外部 Terminal。
-      例如: codex-account work
-            codex-account personal --no-start
+      例如: codex-accounts work
+            codex-accounts personal --no-start
 
-  codex-account stop [--force]
+  codex-accounts stop [--force]
       关闭 Codex App。默认优雅退出；--force 会在超时后 killall。
       如在 Codex 内置 Terminal 中执行，会自动转交给外部 Terminal。
 
-  codex-account start
+  codex-accounts start
       启动 Codex App。
       不能在 Codex 内置 Terminal 中执行。
 
-  codex-account restart [--force]
+  codex-accounts restart [--force]
       重启 Codex App。
       如在 Codex 内置 Terminal 中执行，会自动转交给外部 Terminal。
 
-  codex-account create <账号名> [--migrate-current]
+  codex-accounts create <账号名> [--migrate-current]
       创建新的账号目录 ~/.codex-<账号名>。
       加 --migrate-current 可将已有的真实 ~/.codex 目录迁移为该账号。
       迁移不能在 Codex 内置 Terminal 中执行，且迁移前必须先从外部
       Terminal 关闭 Codex App。
 
-  codex-account install [目录]
+  codex-accounts install [目录]
       安装本脚本到 PATH 目录。默认优先选择已有 PATH 中可写的目录。
 
-  codex-account help
+  codex-accounts help
       显示帮助。
 
 环境变量:
   CODEX_APP_NAME       App 名称，默认 Codex
   CODEX_QUIT_TIMEOUT   等待 App 退出秒数，默认 20
-  CODEX_ACCOUNT_LINK   当前账号链接，默认 ~/.codex
-  CODEX_ACCOUNT_PREFIX 账号目录前缀，默认 ~/.codex-
-  CODEX_ACCOUNT_LANG   强制提示语言，可设为 zh 或 en
+  CODEX_ACCOUNTS_LINK   当前账号链接，默认 ~/.codex
+  CODEX_ACCOUNTS_PREFIX 账号目录前缀，默认 ~/.codex-
+  CODEX_ACCOUNTS_LANG   强制提示语言，可设为 zh 或 en
+  兼容旧变量: CODEX_ACCOUNT_LINK / CODEX_ACCOUNT_PREFIX / CODEX_ACCOUNT_LANG
 USAGE
   else
   cat <<'USAGE'
-codex-account - Codex multi-account switcher
+codex-accounts - Codex multi-account switcher
 
 Account layout:
   Active account: ~/.codex                 symlink
@@ -126,53 +127,54 @@ Account layout:
                   ~/.codex-personal        account name: personal
 
 Usage:
-  codex-account list | ls
+  codex-accounts list | ls
       List all account directories and mark the active account.
 
-  codex-account current
+  codex-accounts current
       Show where ~/.codex currently points.
 
-  codex-account use <account> [--no-stop] [--no-start] [--force]
-  codex-account switch <account> [--no-stop] [--no-start] [--force]
-  codex-account <account>
+  codex-accounts use <account> [--no-stop] [--no-start] [--force]
+  codex-accounts switch <account> [--no-stop] [--no-start] [--force]
+  codex-accounts <account>
       Quit Codex App -> switch the ~/.codex symlink -> start Codex App.
       If run from the built-in Codex terminal, it delegates to Terminal.app.
-      Examples: codex-account work
-                codex-account personal --no-start
+      Examples: codex-accounts work
+                codex-accounts personal --no-start
 
-  codex-account stop [--force]
+  codex-accounts stop [--force]
       Quit Codex App. By default this asks the app to quit gracefully;
       --force runs killall if the app does not exit before the timeout.
       If run from the built-in Codex terminal, it delegates to Terminal.app.
 
-  codex-account start
+  codex-accounts start
       Start Codex App.
       Must not be run from the built-in Codex terminal.
 
-  codex-account restart [--force]
+  codex-accounts restart [--force]
       Restart Codex App.
       If run from the built-in Codex terminal, it delegates to Terminal.app.
 
-  codex-account create <account> [--migrate-current]
+  codex-accounts create <account> [--migrate-current]
       Create a new account directory ~/.codex-<account>.
       Add --migrate-current to migrate an existing real ~/.codex directory
       into this account.
       Migration must not be run from the built-in Codex terminal, and you
       must quit Codex App from an external terminal before migration.
 
-  codex-account install [directory]
+  codex-accounts install [directory]
       Install this script into a PATH directory. By default it chooses
       a writable directory that is already in PATH when possible.
 
-  codex-account help
+  codex-accounts help
       Show this help.
 
 Environment variables:
   CODEX_APP_NAME       App name, default: Codex
   CODEX_QUIT_TIMEOUT   Seconds to wait for app exit, default: 20
-  CODEX_ACCOUNT_LINK   Active account link, default: ~/.codex
-  CODEX_ACCOUNT_PREFIX Account directory prefix, default: ~/.codex-
-  CODEX_ACCOUNT_LANG   Force output language: zh or en
+  CODEX_ACCOUNTS_LINK   Active account link, default: ~/.codex
+  CODEX_ACCOUNTS_PREFIX Account directory prefix, default: ~/.codex-
+  CODEX_ACCOUNTS_LANG   Force output language: zh or en
+  Legacy aliases: CODEX_ACCOUNT_LINK / CODEX_ACCOUNT_PREFIX / CODEX_ACCOUNT_LANG
 USAGE
   fi
 }
@@ -281,9 +283,9 @@ list_accounts() {
 
   if [ "$found" -eq 0 ]; then
     if is_zh; then
-      info "未找到账号目录。可以先执行: codex-account create work"
+      info "未找到账号目录。可以先执行: codex-accounts create work"
     else
-      info "No account directories found. You can create one with: codex-account create work"
+      info "No account directories found. You can create one with: codex-accounts create work"
     fi
   fi
 
@@ -386,9 +388,9 @@ external_terminal_command() {
   command="unset CODEX_SHELL CODEX_THREAD_ID CODEX_SANDBOX CODEX_SANDBOX_NETWORK_DISABLED CODEX_CI CODEX_INTERNAL_ORIGINATOR_OVERRIDE __CFBundleIdentifier;"
   command="$command export CODEX_APP_NAME=$(shell_quote "$APP_NAME");"
   command="$command export CODEX_QUIT_TIMEOUT=$(shell_quote "$QUIT_TIMEOUT");"
-  command="$command export CODEX_ACCOUNT_LINK=$(shell_quote "$ACTIVE_LINK");"
-  command="$command export CODEX_ACCOUNT_PREFIX=$(shell_quote "$ACCOUNT_PREFIX");"
-  command="$command export CODEX_ACCOUNT_LANG=$(shell_quote "$UI_LANG");"
+  command="$command export CODEX_ACCOUNTS_LINK=$(shell_quote "$ACTIVE_LINK");"
+  command="$command export CODEX_ACCOUNTS_PREFIX=$(shell_quote "$ACCOUNT_PREFIX");"
+  command="$command export CODEX_ACCOUNTS_LANG=$(shell_quote "$UI_LANG");"
   command="$command bash $(shell_quote "$(script_path)")"
   for arg in "$@"; do
     command="$command $(shell_quote "$arg")"
@@ -410,14 +412,14 @@ delegate_to_external_terminal() {
     info "Detected the built-in Codex terminal; delegating $action to Terminal.app..."
   fi
 
-  launcher="$(mktemp "${TMPDIR:-/tmp}/codex-account.XXXXXX")"
+  launcher="$(mktemp "${TMPDIR:-/tmp}/codex-accounts.XXXXXX")"
   mv "$launcher" "$launcher.command"
   launcher="$launcher.command"
   {
     printf '#!/usr/bin/env bash\n'
     printf '%s\n' "$command"
     printf 'status=$?\n'
-    printf 'printf "\\n[codex-account] Done with exit status %%s. You can close this window.\\n" "$status"\n'
+    printf 'printf "\\n[codex-accounts] Done with exit status %%s. You can close this window.\\n" "$status"\n'
     printf 'rm -f "$0"\n'
     printf 'exit "$status"\n'
   } > "$launcher"
@@ -598,9 +600,9 @@ switch_account() {
   dir="$(account_dir "$name")"
   if [ ! -d "$dir" ]; then
     if is_zh; then
-      die "账号不存在: $dir。可先执行: codex-account create $name"
+      die "账号不存在: $dir。可先执行: codex-accounts create $name"
     else
-      die "Account does not exist: $dir. You can create it with: codex-account create $name"
+      die "Account does not exist: $dir. You can create it with: codex-accounts create $name"
     fi
   fi
 
@@ -654,7 +656,7 @@ create_account() {
   done
 
   if [ -z "$name" ]; then
-    if is_zh; then die "缺少账号名，例如: codex-account create work"; else die "Missing account name, for example: codex-account create work"; fi
+    if is_zh; then die "缺少账号名，例如: codex-accounts create work"; else die "Missing account name, for example: codex-accounts create work"; fi
   fi
   name="$(strip_account_name "$name")"
   validate_account_name "$name"
@@ -736,15 +738,15 @@ install_self() {
   fi
   if [ -z "$dest" ]; then
     if is_zh; then
-      die "无法判断安装目录，请指定，例如: codex-account install /usr/local/bin"
+      die "无法判断安装目录，请指定，例如: codex-accounts install /usr/local/bin"
     else
-      die "Could not choose an install directory. Please specify one, for example: codex-account install /usr/local/bin"
+      die "Could not choose an install directory. Please specify one, for example: codex-accounts install /usr/local/bin"
     fi
   fi
 
   mkdir -p "$dest"
-  install -m 0755 "$self" "$dest/codex-account"
-  if is_zh; then info "已安装: $dest/codex-account"; else info "Installed: $dest/codex-account"; fi
+  install -m 0755 "$self" "$dest/codex-accounts"
+  if is_zh; then info "已安装: $dest/codex-accounts"; else info "Installed: $dest/codex-accounts"; fi
 
   if ! path_contains_dir "$dest"; then
     if is_zh; then
@@ -771,7 +773,7 @@ main() {
       ;;
     use|switch|sw)
       if [ "$#" -lt 1 ]; then
-        if is_zh; then die "缺少账号名，例如: codex-account use work"; else die "Missing account name, for example: codex-account use work"; fi
+        if is_zh; then die "缺少账号名，例如: codex-accounts use work"; else die "Missing account name, for example: codex-accounts use work"; fi
       fi
       switch_account "$@"
       ;;

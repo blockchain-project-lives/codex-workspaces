@@ -8,6 +8,7 @@ import shlex
 import shutil
 import sys
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Iterable, List, Optional, Sequence, TextIO
 
@@ -115,13 +116,23 @@ class WorkspaceManager:
         current = self.current_target()
         self.info(self.bold(self.message("Codex 工作区", "Codex workspaces")))
         found = False
+        if self.workspace_dirs():
+            self.info(
+                self.message(
+                    f" {'':1} {'名称':<16} {'大小':>8}  {'最后修改':<16} 路径",
+                    f" {'':1} {'name':<16} {'size':>8}  {'modified':<16} path",
+                )
+            )
         for directory in self.workspace_dirs():
             found = True
             name = strip_workspace_name(str(directory))
             marker = " "
             if current.kind == "target" and current.path:
                 marker = "*" if self.same_path(self.real_dir(directory), current.path) else " "
-            self.info(f" {marker} {name:<16} {directory}")
+            self.info(
+                f" {marker} {name:<16} {self.format_size(self.directory_size(directory)):>8}  "
+                f"{self.format_mtime(directory):<16} {directory}"
+            )
 
         if not found:
             self.info(
@@ -162,6 +173,43 @@ class WorkspaceManager:
                         f"Current workspace: no matching workspace directory -> {current.path}",
                     )
                 )
+
+    def directory_size(self, directory: Path) -> int:
+        total = 0
+        stack = [directory]
+        while stack:
+            current = stack.pop()
+            try:
+                for entry in os.scandir(current):
+                    try:
+                        stat_result = entry.stat(follow_symlinks=False)
+                    except OSError:
+                        continue
+                    if entry.is_dir(follow_symlinks=False):
+                        stack.append(Path(entry.path))
+                    else:
+                        total += stat_result.st_size
+            except OSError:
+                continue
+        return total
+
+    def format_size(self, size: int) -> str:
+        units = ["B", "KB", "MB", "GB", "TB"]
+        value = float(size)
+        for unit in units:
+            if value < 1024 or unit == units[-1]:
+                if unit == "B":
+                    return f"{int(value)} {unit}"
+                return f"{value:.1f} {unit}"
+            value /= 1024
+        return f"{size} B"
+
+    def format_mtime(self, path: Path) -> str:
+        try:
+            timestamp = path.stat().st_mtime
+        except OSError:
+            return "-"
+        return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M")
 
     def show_current(self) -> None:
         current = self.current_target()

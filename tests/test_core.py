@@ -112,6 +112,7 @@ class TestWorkspaceManager:
         manager, stdout, _ = make_manager(tmp_path)
 
         manager.create_workspace("work", [])
+        (manager.workspace_dir("work") / "config.toml").write_text("hello", encoding="utf-8")
         manager.create_workspace("personal", [])
         manager.switch_workspace("personal", ["--no-stop", "--no-start"], ["switch", "personal"])
         stdout.seek(0)
@@ -121,8 +122,20 @@ class TestWorkspaceManager:
 
         output = stdout.getvalue()
         assert "Codex workspaces" in output
+        assert "modified" in output
+        assert "5 B" in output
         assert "* personal" in output
         assert "work" in output
+
+    def test_directory_size_ignores_unreadable_entries(self, tmp_path: Path) -> None:
+        manager, _, _ = make_manager(tmp_path)
+        manager.create_workspace("work", [])
+        nested = manager.workspace_dir("work") / "nested"
+        nested.mkdir()
+        (nested / "data.txt").write_text("hello", encoding="utf-8")
+
+        assert manager.directory_size(manager.workspace_dir("work")) == 5
+        assert manager.format_size(1536) == "1.5 KB"
 
     def test_switch_refuses_to_replace_real_directory(self, tmp_path: Path) -> None:
         manager, _, _ = make_manager(tmp_path)

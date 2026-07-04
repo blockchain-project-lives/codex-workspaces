@@ -4,7 +4,7 @@ All notable changes to `codex-workspaces` will be documented in this file.
 
 This project follows a simple changelog format while it is still pre-release.
 
-## Unreleased
+## 0.2.1 - 2026-07-04
 
 ### Added
 

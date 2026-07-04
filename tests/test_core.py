@@ -147,7 +147,7 @@ class TestWorkspaceNames:
 
 
 class TestSystemPlatform:
-    def test_force_stop_waits_five_seconds_before_killall(self, monkeypatch) -> None:
+    def test_force_stop_waits_short_grace_period_before_killall(self, monkeypatch) -> None:
         platform = StubbornMacPlatform()
         stdout = io.StringIO()
         calls = []
@@ -164,8 +164,8 @@ class TestSystemPlatform:
 
         assert ["osascript", "-e", 'tell application "Codex" to quit'] in calls
         assert ["killall", "Codex"] in calls
-        assert sleeps == [1, 1, 1, 1, 1, 1]
-        assert "did not exit within 5s" in stdout.getvalue()
+        assert sleeps == [1] * (platforms_module.FORCE_QUIT_GRACE_SECONDS + 1)
+        assert f"did not exit within {platforms_module.FORCE_QUIT_GRACE_SECONDS}s" in stdout.getvalue()
 
 
 class TestWorkspaceManager:

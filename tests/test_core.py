@@ -123,6 +123,7 @@ class TestWorkspaceManager:
         output = stdout.getvalue()
         assert "Codex workspaces" in output
         assert "modified" in output
+        assert "note" in output
         assert "5 B" in output
         assert "* personal" in output
         assert "work" in output
@@ -216,3 +217,54 @@ class TestWorkspaceManager:
         assert "platform:" in output
         assert "workspaces found: 1" in output
         assert "current state: work ->" in output
+
+    def test_rename_workspace_updates_active_link(self, tmp_path: Path) -> None:
+        manager, stdout, _ = make_manager(tmp_path)
+        manager.create_workspace("work", [])
+        manager.switch_workspace("work", ["--no-stop", "--no-start"], ["switch", "work"])
+
+        manager.rename_workspace("work", "main")
+        manager.show_current()
+
+        output = stdout.getvalue()
+        assert "Renamed workspace: work -> main" in output
+        assert "main ->" in output
+        assert manager.workspace_dir("main").is_dir()
+        assert not manager.workspace_dir("work").exists()
+
+    def test_delete_workspace_requires_force_and_refuses_active_workspace(self, tmp_path: Path) -> None:
+        manager, _, _ = make_manager(tmp_path)
+        manager.create_workspace("work", [])
+
+        with pytest.raises(CodexWorkspacesError, match="requires --force"):
+            manager.delete_workspace("work", [])
+
+        manager.switch_workspace("work", ["--no-stop", "--no-start"], ["switch", "work"])
+        with pytest.raises(CodexWorkspacesError, match="active workspace"):
+            manager.delete_workspace("work", ["--force"])
+
+    def test_delete_workspace_removes_inactive_workspace(self, tmp_path: Path) -> None:
+        manager, stdout, _ = make_manager(tmp_path)
+        manager.create_workspace("work", [])
+        manager.create_workspace("old", [])
+
+        manager.delete_workspace("old", ["--force"])
+
+        assert "Deleted workspace: old" in stdout.getvalue()
+        assert not manager.workspace_dir("old").exists()
+
+    def test_note_workspace_sets_reads_clears_and_lists_note(self, tmp_path: Path) -> None:
+        manager, stdout, _ = make_manager(tmp_path)
+        manager.create_workspace("work", [])
+
+        manager.note_workspace("work", ["main", "profile"])
+        manager.note_workspace("work", [])
+        manager.list_workspaces()
+        manager.note_workspace("work", ["--clear"])
+        manager.note_workspace("work", [])
+
+        output = stdout.getvalue()
+        assert "Updated note: work" in output
+        assert "main profile" in output
+        assert "Cleared note: work" in output
+        assert "No note set." in output

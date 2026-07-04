@@ -100,6 +100,15 @@ codex-workspaces work --no-stop --no-start
 ```bash
 codex-workspaces list
 codex-workspaces current
+codex-workspaces doctor
+```
+
+管理工作区备注和生命周期：
+
+```bash
+codex-workspaces note work "主力付费工作区"
+codex-workspaces rename work main
+codex-workspaces delete old-workspace --force
 ```
 
 macOS 上控制 Codex App：

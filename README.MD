@@ -100,6 +100,15 @@ Inspect workspaces:
 ```bash
 codex-workspaces list
 codex-workspaces current
+codex-workspaces doctor
+```
+
+Manage workspace metadata and lifecycle:
+
+```bash
+codex-workspaces note work "main paid workspace"
+codex-workspaces rename work main
+codex-workspaces delete old-workspace --force
 ```
 
 Control Codex App on macOS:

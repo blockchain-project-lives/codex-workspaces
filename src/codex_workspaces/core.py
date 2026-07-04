@@ -17,6 +17,7 @@ from .errors import CodexWorkspacesError
 from .platforms import SystemPlatform
 
 WORKSPACE_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+NOTE_FILE = ".codex-workspace-note"
 
 
 def strip_workspace_name(value: str) -> str:
@@ -119,8 +120,8 @@ class WorkspaceManager:
         if self.workspace_dirs():
             self.info(
                 self.message(
-                    f" {'':1} {'名称':<16} {'大小':>8}  {'最后修改':<16} 路径",
-                    f" {'':1} {'name':<16} {'size':>8}  {'modified':<16} path",
+                    f" {'':1} {'名称':<16} {'大小':>8}  {'最后修改':<16} {'备注':<24} 路径",
+                    f" {'':1} {'name':<16} {'size':>8}  {'modified':<16} {'note':<24} path",
                 )
             )
         for directory in self.workspace_dirs():
@@ -131,7 +132,7 @@ class WorkspaceManager:
                 marker = "*" if self.same_path(self.real_dir(directory), current.path) else " "
             self.info(
                 f" {marker} {name:<16} {self.format_size(self.directory_size(directory)):>8}  "
-                f"{self.format_mtime(directory):<16} {directory}"
+                f"{self.format_mtime(directory):<16} {self.format_note(self.workspace_note(directory)):<24} {directory}"
             )
 
         if not found:
@@ -210,6 +211,23 @@ class WorkspaceManager:
         except OSError:
             return "-"
         return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M")
+
+    def note_path(self, directory: Path) -> Path:
+        return directory / NOTE_FILE
+
+    def workspace_note(self, directory: Path) -> str:
+        try:
+            return self.note_path(directory).read_text(encoding="utf-8").strip()
+        except FileNotFoundError:
+            return ""
+        except OSError:
+            return ""
+
+    def format_note(self, note: str) -> str:
+        clean_note = " ".join(note.split())
+        if len(clean_note) <= 24:
+            return clean_note
+        return clean_note[:21] + "..."
 
     def show_current(self) -> None:
         current = self.current_target()
@@ -460,6 +478,97 @@ class WorkspaceManager:
         directory.mkdir(parents=True, exist_ok=False)
         self.info(self.message(f"已创建工作区目录: {directory}", f"Created workspace directory: {directory}"))
 
+    def rename_workspace(self, old_name: str, new_name: str) -> None:
+        old_clean = strip_workspace_name(old_name)
+        new_clean = strip_workspace_name(new_name)
+        validate_workspace_name(old_clean)
+        validate_workspace_name(new_clean)
+        old_directory = self.workspace_dir(old_clean)
+        new_directory = self.workspace_dir(new_clean)
+
+        if not old_directory.is_dir():
+            self.fail(f"工作区不存在: {old_directory}", f"Workspace does not exist: {old_directory}")
+        if new_directory.exists():
+            self.fail(f"目标工作区已存在: {new_directory}", f"Target workspace already exists: {new_directory}")
+
+        current = self.current_target()
+        was_current = current.kind == "target" and current.path is not None and self.same_path(
+            self.real_dir(old_directory),
+            current.path,
+        )
+
+        old_directory.rename(new_directory)
+        if was_current and self.platform.is_directory_link(self.config.active_link):
+            self.platform.remove_directory_link(self.config.active_link)
+            self.platform.create_directory_link(new_directory, self.config.active_link)
+
+        self.info(
+            self.message(
+                f"已重命名工作区: {old_clean} -> {new_clean}",
+                f"Renamed workspace: {old_clean} -> {new_clean}",
+            )
+        )
+
+    def delete_workspace(self, name: str, args: Sequence[str]) -> None:
+        force = False
+        for arg in args:
+            if arg == "--force":
+                force = True
+            else:
+                self.fail(f"未知参数: {arg}", f"Unknown option: {arg}")
+        if not force:
+            self.fail(
+                "删除工作区需要 --force，避免误删。",
+                "Deleting a workspace requires --force to avoid accidental data loss.",
+            )
+
+        clean_name = strip_workspace_name(name)
+        validate_workspace_name(clean_name)
+        directory = self.workspace_dir(clean_name)
+        if not directory.is_dir():
+            self.fail(f"工作区不存在: {directory}", f"Workspace does not exist: {directory}")
+
+        current = self.current_target()
+        if current.kind == "target" and current.path is not None and self.same_path(self.real_dir(directory), current.path):
+            self.fail(
+                "不能删除当前正在使用的工作区；请先切换到其他工作区。",
+                "Cannot delete the active workspace; switch to another workspace first.",
+            )
+
+        shutil.rmtree(directory)
+        self.info(self.message(f"已删除工作区: {clean_name}", f"Deleted workspace: {clean_name}"))
+
+    def note_workspace(self, name: str, args: Sequence[str]) -> None:
+        clean_name = strip_workspace_name(name)
+        validate_workspace_name(clean_name)
+        directory = self.workspace_dir(clean_name)
+        if not directory.is_dir():
+            self.fail(f"工作区不存在: {directory}", f"Workspace does not exist: {directory}")
+
+        note_file = self.note_path(directory)
+        if not args:
+            note = self.workspace_note(directory)
+            if note:
+                self.info(note)
+            else:
+                self.info(self.message("未设置备注。", "No note set."))
+            return
+
+        if len(args) == 1 and args[0] == "--clear":
+            note_file.unlink(missing_ok=True)
+            self.info(self.message(f"已清除备注: {clean_name}", f"Cleared note: {clean_name}"))
+            return
+
+        text = " ".join(args).strip()
+        if not text:
+            self.fail("备注不能为空。", "Note cannot be empty.")
+        note_file.write_text(text + "\n", encoding="utf-8")
+        try:
+            note_file.chmod(0o600)
+        except OSError:
+            pass
+        self.info(self.message(f"已更新备注: {clean_name}", f"Updated note: {clean_name}"))
+
     def install_self(self, destination: Optional[str] = None) -> None:
         dest = Path(destination) if destination else self.default_install_dir()
         if dest is None:
@@ -559,6 +668,15 @@ def usage(lang: str) -> str:
       创建新的工作区目录 ~/.codex-<工作区名>。
       加 --migrate-current 可将已有的真实 ~/.codex 目录迁移为该工作区。
 
+  codex-workspaces rename <旧工作区名> <新工作区名>
+      重命名工作区；如果重命名当前工作区，会同步更新当前链接。
+
+  codex-workspaces delete <工作区名> --force
+      删除工作区目录。不能删除当前正在使用的工作区。
+
+  codex-workspaces note <工作区名> [备注文本|--clear]
+      查看、设置或清除工作区备注。
+
   codex-workspaces install [目录]
       安装 Python 启动器到 PATH 目录。推荐优先使用 pipx 或 pip 安装。
 
@@ -608,6 +726,15 @@ Usage:
   codex-workspaces create <workspace> [--migrate-current]
       Create a new workspace directory ~/.codex-<workspace>.
       Add --migrate-current to migrate an existing real ~/.codex directory.
+
+  codex-workspaces rename <old-workspace> <new-workspace>
+      Rename a workspace. If it is active, the active link is updated.
+
+  codex-workspaces delete <workspace> --force
+      Delete a workspace directory. The active workspace cannot be deleted.
+
+  codex-workspaces note <workspace> [note text|--clear]
+      Show, set, or clear a workspace note.
 
   codex-workspaces install [directory]
       Install a Python launcher into a PATH directory. pipx or pip is preferred.

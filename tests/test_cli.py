@@ -63,3 +63,16 @@ class TestCliDispatch:
         assert run(["doctor"], manager) == 0
 
         assert "Codex workspaces doctor" in manager.stdout.getvalue()
+
+    def test_rename_delete_and_note_dispatch(self, tmp_path: Path) -> None:
+        manager = manager_for(tmp_path)
+
+        assert run(["create", "work"], manager) == 0
+        assert run(["note", "work", "daily", "driver"], manager) == 0
+        assert run(["rename", "work", "main"], manager) == 0
+        assert run(["delete", "main", "--force"], manager) == 0
+
+        output = manager.stdout.getvalue()
+        assert "Updated note: work" in output
+        assert "Renamed workspace: work -> main" in output
+        assert "Deleted workspace: main" in output

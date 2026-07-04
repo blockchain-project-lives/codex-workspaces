@@ -67,6 +67,30 @@ def run(argv: Sequence[str], manager: WorkspaceManager) -> int:
         else:
             manager.create_workspace(args[0], args[1:])
         return 0
+    if command in {"rename", "mv"}:
+        if len(args) != 2:
+            manager.fail(
+                "用法: codex-workspaces rename <旧工作区名> <新工作区名>",
+                "Usage: codex-workspaces rename <old-workspace> <new-workspace>",
+            )
+        manager.rename_workspace(args[0], args[1])
+        return 0
+    if command in {"delete", "remove", "rm"}:
+        if not args:
+            manager.fail(
+                "用法: codex-workspaces delete <工作区名> --force",
+                "Usage: codex-workspaces delete <workspace> --force",
+            )
+        manager.delete_workspace(args[0], args[1:])
+        return 0
+    if command == "note":
+        if not args:
+            manager.fail(
+                "用法: codex-workspaces note <工作区名> [备注文本|--clear]",
+                "Usage: codex-workspaces note <workspace> [note text|--clear]",
+            )
+        manager.note_workspace(args[0], args[1:])
+        return 0
     if command == "install":
         if len(args) > 1:
             manager.fail(f"未知参数: {args[1]}", f"Unknown option: {args[1]}")

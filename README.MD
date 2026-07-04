@@ -17,6 +17,7 @@ On macOS, the Python CLI preserves the original app workflow: stop Codex App, sw
 - Switch the active `~/.codex` symlink or directory link.
 - Initialize workspace directories and migrate an existing real `~/.codex` directory.
 - Keep macOS Codex App stop/start/restart support.
+- Show local token usage stats from Codex `state_*.sqlite` in read-only mode.
 - Block unsafe operations from a detected Codex built-in terminal when they cannot be delegated safely.
 - Support English and Chinese output through `CODEX_WORKSPACES_LANG`.
 - Package as a Python project with tests, CI, and PyPI publishing workflow.
@@ -101,6 +102,8 @@ Inspect workspaces:
 codex-workspaces list
 codex-workspaces current
 codex-workspaces doctor
+codex-workspaces stats
+codex-workspaces stats work --days 14
 ```
 
 Manage workspace metadata and lifecycle:
@@ -118,6 +121,8 @@ codex-workspaces stop
 codex-workspaces start
 codex-workspaces restart
 ```
+
+`stats` only reads local SQLite files such as `state_*.sqlite` or `sqlite/state_*.sqlite`. It does not call quota or refresh private APIs.
 
 ## Environment Variables
 

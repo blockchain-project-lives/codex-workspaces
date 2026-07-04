@@ -14,6 +14,7 @@ This project follows a simple changelog format while it is still pre-release.
 - Added `doctor` diagnostics for platform, path, link, and Codex terminal status.
 - Added workspace size and modified-time metadata to `list`.
 - Added workspace `rename`, guarded `delete --force`, and local `note` management.
+- Added read-only local SQLite token usage stats with `stats`.
 - Added `pyproject.toml`, package metadata, editable install support, and PyPI-ready build configuration.
 - Added GitHub Actions CI for Linux, macOS, Windows, and Python 3.9/3.11/3.13.
 - Added GitHub Actions Trusted Publishing workflow for PyPI releases.

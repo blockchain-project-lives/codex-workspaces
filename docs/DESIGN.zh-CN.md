@@ -8,7 +8,7 @@ Python 版的目标是在保留 shell 脚本的情况下，提供可测试、可
 
 ## 目标
 
-- 保持现有命令语义：`list`、`current`、`init`、`switch/use`、工作区名快捷切换、`stop/start/restart`。
+- 保持现有命令语义：`list`、`current`、`init`、`stats`、`switch/use`、工作区名快捷切换、`stop/start/restart`。
 - 工作区目录管理跨平台可用。
 - macOS App 控制保留原行为。
 - 非 macOS 平台不执行 App 启停，只切换工作区链接。
@@ -29,6 +29,7 @@ src/codex_workspaces/
   cli.py         命令分发和进程入口
   config.py      环境变量、默认路径、语言检测
   core.py        工作区目录、链接切换、迁移和安装器逻辑
+  stats.py       只读 Codex SQLite 的本地 token 统计
   platforms.py   平台差异：App 控制、Terminal 转交、目录链接
   errors.py      可预期命令错误
 ```
@@ -77,6 +78,8 @@ Windows：
 
 - 如果 `~/.codex` 存在且不是链接，`switch` 拒绝执行，避免覆盖真实目录。
 - `init --migrate-current` 只迁移真实目录，不迁移已有链接。
+- `stats` 只以 read-only SQLite URI 读取 `state_*.sqlite`，不写入 Codex 数据库。
+- 不实现 `quota`/`refresh` 这类依赖私有接口或私有行为的功能。
 - macOS 上迁移前必须确认 Codex App 未运行。
 - Codex 内置 Terminal 中的危险命令要么转交外部 Terminal，要么拒绝。
 - 任何切换都只替换 active link，不删除 `~/.codex-<name>` 工作区目录。
@@ -93,6 +96,6 @@ Python CLI 和 Bash 脚本可以共存。通过 PyPI/pipx 安装时，`codex-wor
 
 - `pyproject.toml` 使用 setuptools 构建 wheel 和 sdist。
 - console script：`codex-workspaces = codex_workspaces.cli:main`。
-- sdist 通过 `MANIFEST.in` 包含 README、CHANGELOG、docs、tests 和 `macos/` 下的原 Bash 脚本。
+- sdist 通过 `MANIFEST.in` 包含 README、CHANGELOG、docs 和 tests；`macos/` 下的原 Bash 脚本保留在仓库中，不随 Python 包发布。
 - GitHub CI 负责多平台测试和包检查。
-- GitHub Release 触发 PyPI Trusted Publishing。
+- `v*` tag 触发 TestPyPI Trusted Publishing，`release/v*` 分支触发 PyPI Trusted Publishing。

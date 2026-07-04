@@ -15,6 +15,7 @@ from typing import Iterable, List, Optional, Sequence, TextIO
 from .config import Config
 from .errors import CodexWorkspacesError
 from .platforms import SystemPlatform
+from .stats import StatsError, WorkspaceStats, compute_workspace_stats
 
 WORKSPACE_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 NOTE_FILE = ".codex-workspace-note"
@@ -275,6 +276,82 @@ class WorkspaceManager:
         running_text = "unknown" if running is None else self._yes_no(running)
         self.info(f"app running: {running_text}")
         self.info(f"codex terminal detected: {self._yes_no(self.platform.is_codex_terminal())}")
+
+    def show_stats(self, name: Optional[str] = None, days: int = 7) -> None:
+        clean_name, directory = self.stats_target(name)
+        try:
+            stats = compute_workspace_stats(clean_name, directory, days)
+        except StatsError as exc:
+            self.fail(f"无法读取统计数据: {exc}", f"Could not read stats: {exc}")
+
+        self.info(self.bold(self.message(f"Codex 工作区统计: {stats.name}", f"Codex workspace stats: {stats.name}")))
+        self.info(f"source: {stats.source}")
+        self.info(self.message("说明: 本命令只读本地 Codex SQLite，不访问 quota/refresh 私有接口。", "note: this only reads local Codex SQLite; it does not call quota/refresh private APIs."))
+        self.info()
+
+        if not stats.sessions:
+            self.info(self.message("没有记录到 token 用量。", "No token usage recorded."))
+            return
+
+        self.info(f"sessions: {stats.total_sessions:,}")
+        self.info(f"total tokens: {stats.total_tokens:,}")
+        self.info(f"last 7 days: {stats.last_7d_tokens:,} ({stats.last_7d_sessions} sessions)")
+        self.info(f"last 30 days: {stats.last_30d_tokens:,} ({stats.last_30d_sessions} sessions)")
+        self.info()
+        self.render_model_stats(stats)
+        self.info()
+        self.render_daily_stats(stats)
+        self.info()
+        self.render_recent_sessions(stats)
+
+    def stats_target(self, name: Optional[str]) -> tuple[str, Path]:
+        if name:
+            clean_name = strip_workspace_name(name)
+            validate_workspace_name(clean_name)
+            directory = self.workspace_dir(clean_name)
+            if not directory.is_dir():
+                self.fail(f"工作区不存在: {directory}", f"Workspace does not exist: {directory}")
+            return clean_name, directory
+
+        current = self.current_target()
+        if current.kind == "missing":
+            self.fail(
+                "当前工作区不存在，请指定工作区名。",
+                "Current workspace does not exist; pass a workspace name.",
+            )
+        if current.kind == "not-a-link":
+            self.fail(
+                "当前工作区不是链接，请指定工作区名。",
+                "Current workspace is not a link; pass a workspace name.",
+            )
+        assert current.path is not None
+        return self.current_name(current.path) or "current", current.path
+
+    def render_model_stats(self, stats: WorkspaceStats) -> None:
+        self.info(self.message("按模型:", "by model:"))
+        for model, tokens in sorted(stats.by_model.items(), key=lambda item: (-item[1], item[0])):
+            self.info(f"  {model:<22} {tokens:>14,}  {self.bar(tokens, stats.total_tokens)}")
+
+    def render_daily_stats(self, stats: WorkspaceStats) -> None:
+        self.info(self.message(f"每日 token 最近 {len(stats.daily)} 天:", f"daily tokens last {len(stats.daily)} days:"))
+        peak = max((entry.tokens for entry in stats.daily), default=0)
+        for entry in stats.daily:
+            self.info(f"  {entry.day.isoformat()}  {entry.tokens:>14,}  {self.bar(entry.tokens, peak)} ({entry.sessions})")
+
+    def render_recent_sessions(self, stats: WorkspaceStats) -> None:
+        self.info(self.message("最近会话:", "recent sessions:"))
+        for session in stats.sessions[:10]:
+            timestamp = session.created_at.astimezone().strftime("%m-%d %H:%M") if session.created_at else "?"
+            title = " ".join(session.title.split())
+            if len(title) > 36:
+                title = title[:33] + "..."
+            self.info(f"  {timestamp:<11} {title:<36} {session.tokens:>10,}  {session.model[:18]}")
+
+    def bar(self, value: int, total: int, width: int = 20) -> str:
+        if value <= 0 or total <= 0:
+            return ""
+        count = max(1, int(value / total * width))
+        return "#" * min(width, count)
 
     def _yes_no(self, value: bool) -> str:
         return self.message("是" if value else "否", "yes" if value else "no")
@@ -648,6 +725,9 @@ def usage(lang: str) -> str:
   codex-workspaces doctor
       输出路径、平台、App 控制和当前工作区状态诊断。
 
+  codex-workspaces stats [工作区名] [--days 天数]
+      只读本地 Codex state_*.sqlite，统计 token 用量。
+
   codex-workspaces use <工作区名> [--no-stop] [--no-start] [--force]
   codex-workspaces switch <工作区名> [--no-stop] [--no-start] [--force]
   codex-workspaces <工作区名>
@@ -706,6 +786,9 @@ Usage:
 
   codex-workspaces doctor
       Print path, platform, app-control, and current workspace diagnostics.
+
+  codex-workspaces stats [workspace] [--days days]
+      Read local Codex state_*.sqlite in read-only mode and summarize token usage.
 
   codex-workspaces use <workspace> [--no-stop] [--no-start] [--force]
   codex-workspaces switch <workspace> [--no-stop] [--no-start] [--force]

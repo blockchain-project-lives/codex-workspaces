@@ -30,6 +30,31 @@ def run(argv: Sequence[str], manager: WorkspaceManager) -> int:
     if command in {"doctor", "diagnose"}:
         manager.doctor()
         return 0
+    if command == "stats":
+        name = None
+        days = 7
+        index = 0
+        while index < len(args):
+            arg = args[index]
+            if arg in {"-h", "--help"}:
+                manager.info(usage(manager.config.lang))
+                return 0
+            if arg == "--days":
+                index += 1
+                if index >= len(args):
+                    manager.fail("缺少 --days 数值", "Missing value for --days")
+                days = _parse_days(args[index], manager)
+            elif arg.startswith("--days="):
+                days = _parse_days(arg.split("=", 1)[1], manager)
+            elif arg.startswith("-"):
+                manager.fail(f"未知参数: {arg}", f"Unknown option: {arg}")
+            elif name is None:
+                name = arg
+            else:
+                manager.fail(f"未知参数: {arg}", f"Unknown option: {arg}")
+            index += 1
+        manager.show_stats(name, days)
+        return 0
     if command in {"use", "switch", "sw"}:
         if not args:
             manager.fail(
@@ -106,6 +131,16 @@ def run(argv: Sequence[str], manager: WorkspaceManager) -> int:
 
     manager.fail(f"未知命令或工作区不存在: {command}", f"Unknown command or workspace does not exist: {command}")
     return 1
+
+
+def _parse_days(value: str, manager: WorkspaceManager) -> int:
+    try:
+        days = int(value)
+    except ValueError:
+        manager.fail("--days 必须是正整数", "--days must be a positive integer")
+    if days < 1 or days > 90:
+        manager.fail("--days 必须在 1 到 90 之间", "--days must be between 1 and 90")
+    return days
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:

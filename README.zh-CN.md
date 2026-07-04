@@ -17,6 +17,7 @@
 - 切换当前 `~/.codex` 软链接或目录链接。
 - 初始化工作区目录，并支持把已有真实 `~/.codex` 目录迁移成工作区。
 - 保留 macOS 上 Codex App 的 `stop`、`start`、`restart`。
+- 以只读方式读取 Codex `state_*.sqlite`，展示本地 token 用量统计。
 - 在检测到 Codex 内置 Terminal 且无法安全转交时，阻止危险操作。
 - 支持中英文输出，可通过 `CODEX_WORKSPACES_LANG` 指定。
 - 提供 Python 包、测试、GitHub CI 和 PyPI 发布工作流。
@@ -101,6 +102,8 @@ codex-workspaces work --no-stop --no-start
 codex-workspaces list
 codex-workspaces current
 codex-workspaces doctor
+codex-workspaces stats
+codex-workspaces stats work --days 14
 ```
 
 管理工作区备注和生命周期：
@@ -118,6 +121,8 @@ codex-workspaces stop
 codex-workspaces start
 codex-workspaces restart
 ```
+
+`stats` 只读取本地 SQLite 文件，例如 `state_*.sqlite` 或 `sqlite/state_*.sqlite`。它不会调用 quota 或 refresh 私有接口。
 
 ## 环境变量
 

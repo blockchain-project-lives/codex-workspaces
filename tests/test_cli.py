@@ -64,6 +64,19 @@ class TestCliDispatch:
 
         assert "Codex workspaces doctor" in manager.stdout.getvalue()
 
+    def test_stats_dispatches_with_days(self, tmp_path: Path) -> None:
+        from test_core import seed_state_db
+
+        manager = manager_for(tmp_path)
+        run(["init", "work"], manager)
+        seed_state_db(manager.workspace_dir("work") / "state_5.sqlite")
+
+        assert run(["stats", "work", "--days", "3"], manager) == 0
+
+        output = manager.stdout.getvalue()
+        assert "Codex workspace stats: work" in output
+        assert "daily tokens last 3 days:" in output
+
     def test_rename_delete_and_note_dispatch(self, tmp_path: Path) -> None:
         manager = manager_for(tmp_path)
 

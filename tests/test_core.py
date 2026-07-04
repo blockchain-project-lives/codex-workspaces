@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import io
+import sqlite3
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -76,6 +78,36 @@ def make_manager(tmp_path: Path, platform: FakePlatform | None = None, lang: str
         stderr,
     )
     return manager, stdout, stderr
+
+
+def seed_state_db(path: Path) -> None:
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute(
+            """
+            CREATE TABLE threads (
+                title TEXT,
+                model TEXT,
+                tokens_used INTEGER,
+                created_at TEXT,
+                created_at_ms INTEGER
+            )
+            """
+        )
+        now = datetime.now(timezone.utc)
+        rows = [
+            ("Build docs", "gpt-5.5", 1000, now.isoformat(), int(now.timestamp() * 1000)),
+            ("Fix tests", "gpt-5.4", 2500, (now - timedelta(days=2)).isoformat(), int((now - timedelta(days=2)).timestamp() * 1000)),
+            ("Old task", "gpt-5.5", 4000, (now - timedelta(days=20)).isoformat(), int((now - timedelta(days=20)).timestamp() * 1000)),
+            ("No usage", "gpt-5.5", 0, now.isoformat(), int(now.timestamp() * 1000)),
+        ]
+        conn.executemany(
+            "INSERT INTO threads (title, model, tokens_used, created_at, created_at_ms) VALUES (?, ?, ?, ?, ?)",
+            rows,
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 class TestWorkspaceNames:
@@ -217,6 +249,44 @@ class TestWorkspaceManager:
         assert "platform:" in output
         assert "workspaces found: 1" in output
         assert "current state: work ->" in output
+
+    def test_stats_reads_current_workspace_state_database(self, tmp_path: Path) -> None:
+        manager, stdout, _ = make_manager(tmp_path)
+        manager.init_workspace("work", [])
+        seed_state_db(manager.workspace_dir("work") / "state_5.sqlite")
+        manager.switch_workspace("work", ["--no-stop", "--no-start"], ["switch", "work"])
+        stdout.seek(0)
+        stdout.truncate(0)
+
+        manager.show_stats(days=7)
+
+        output = stdout.getvalue()
+        assert "Codex workspace stats: work" in output
+        assert "total tokens: 7,500" in output
+        assert "last 7 days: 3,500 (2 sessions)" in output
+        assert "by model:" in output
+        assert "daily tokens last 7 days:" in output
+        assert "recent sessions:" in output
+
+    def test_stats_reads_nested_sqlite_directory_for_named_workspace(self, tmp_path: Path) -> None:
+        manager, stdout, _ = make_manager(tmp_path)
+        manager.init_workspace("work", [])
+        sqlite_dir = manager.workspace_dir("work") / "sqlite"
+        sqlite_dir.mkdir()
+        seed_state_db(sqlite_dir / "state_6.sqlite")
+
+        manager.show_stats("work", days=3)
+
+        output = stdout.getvalue()
+        assert "state_6.sqlite" in output
+        assert "daily tokens last 3 days:" in output
+
+    def test_stats_reports_missing_database(self, tmp_path: Path) -> None:
+        manager, _, _ = make_manager(tmp_path)
+        manager.init_workspace("work", [])
+
+        with pytest.raises(CodexWorkspacesError, match="Could not read stats"):
+            manager.show_stats("work")
 
     def test_rename_workspace_updates_active_link(self, tmp_path: Path) -> None:
         manager, stdout, _ = make_manager(tmp_path)

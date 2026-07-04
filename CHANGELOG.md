@@ -4,6 +4,31 @@ All notable changes to `codex-workspaces` will be documented in this file.
 
 This project follows a simple changelog format while it is still pre-release.
 
+## 0.3.4 - 2026-07-04
+
+### Added
+
+- Added `accounts current --id` and `accounts current --json` for shell-friendly account composition.
+
+### Changed
+
+- Default experimental private API quota configuration now points at the ChatGPT WHAM usage endpoint while remaining disabled by default.
+- Updated WHAM quota parsing for `rate_limit.primary_window`, reset times, window duration, allowed/limit status, and credits metadata.
+- Tightened quota auth extraction to use ChatGPT `auth.json` fields (`tokens.access_token`, `tokens.refresh_token`, and `tokens.account_id`) without recursively guessing token fields.
+- Updated README and testing docs to document the current `base_url`, `quota_endpoint`, and `account_endpoint` configuration fields.
+
+### Fixed
+
+- Fixed `quota`, `quota --json`, `accounts quota`, and `accounts list -a` so disabled or failing private API quota calls return friendly errors instead of Python tracebacks.
+- Fixed `accounts list -a` so one account's realtime quota failure does not interrupt the whole account list.
+- Fixed `accounts current` command composition by documenting `accounts info "$(codex-workspaces accounts current --id)"`.
+- Fixed WHAM quota requests to include `OpenAI-Account-Id`.
+- Fixed unauthorized and expired-access-token quota failures to return actionable login/refresh hints without leaking credentials.
+
+### Security
+
+- Avoids using `id_token` or recursively discovered token-like fields as private API bearer tokens.
+
 ## 0.3.3 - 2026-07-04
 
 ### Added
@@ -18,25 +43,12 @@ This project follows a simple changelog format while it is still pre-release.
 - Added `accounts refresh [account|--all]` for refreshing remote account metadata and quota cache without modifying `auth.json`.
 - Added `config get/set experimental_private_api.*` for explicitly enabling and configuring experimental private API behavior.
 - Added quota cache with TTL and auth-hash invalidation under `~/.codex-workspaces/cache/quota/`.
-- Added `accounts current --id` and `accounts current --json` for shell-friendly account composition.
 
 ### Changed
 
 - Improved account list/info metadata enrichment while keeping auth parsing optional and non-blocking.
 - Improved local stats presentation while keeping all statistics local and read-only.
-- Default experimental private API quota configuration now points at the ChatGPT WHAM usage endpoint while remaining disabled by default.
-- Updated WHAM quota parsing for `rate_limit.primary_window`, reset times, window duration, allowed/limit status, and credits metadata.
-- Tightened quota auth extraction to use ChatGPT `auth.json` fields (`tokens.access_token`, `tokens.refresh_token`, and `tokens.account_id`) without recursively guessing token fields.
-- Updated README and testing docs to document the current `base_url`, `quota_endpoint`, and `account_endpoint` configuration fields.
 - Updated README, design, testing, release, and changelog docs for the 0.3.3 workflow.
-
-### Fixed
-
-- Fixed `quota`, `quota --json`, `accounts quota`, and `accounts list -a` so disabled or failing private API quota calls return friendly errors instead of Python tracebacks.
-- Fixed `accounts list -a` so one account's realtime quota failure does not interrupt the whole account list.
-- Fixed `accounts current` command composition by documenting `accounts info "$(codex-workspaces accounts current --id)"`.
-- Fixed WHAM quota requests to include `OpenAI-Account-Id`.
-- Fixed unauthorized and expired-access-token quota failures to return actionable login/refresh hints without leaking credentials.
 
 ### Security
 
@@ -46,7 +58,6 @@ This project follows a simple changelog format while it is still pre-release.
 - Private API quota/refresh features are disabled by default and must be explicitly enabled.
 - Sensitive auth material is redacted from private API errors, command output, and quota cache.
 - Quota cache stores no tokens, cookies, authorization headers, or raw `auth.json`.
-- Avoids using `id_token` or recursively discovered token-like fields as private API bearer tokens.
 
 ### Notes
 

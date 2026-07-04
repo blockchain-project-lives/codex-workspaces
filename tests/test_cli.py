@@ -56,3 +56,10 @@ class TestCliDispatch:
         assert run(["help"], manager) == 0
 
         assert "Codex multi-workspace switcher" in manager.stdout.getvalue()
+
+    def test_doctor_dispatches(self, tmp_path: Path) -> None:
+        manager = manager_for(tmp_path)
+
+        assert run(["doctor"], manager) == 0
+
+        assert "Codex workspaces doctor" in manager.stdout.getvalue()

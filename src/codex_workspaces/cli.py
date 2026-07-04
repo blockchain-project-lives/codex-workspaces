@@ -27,6 +27,9 @@ def run(argv: Sequence[str], manager: WorkspaceManager) -> int:
     if command in {"current", "whoami"}:
         manager.show_current()
         return 0
+    if command in {"doctor", "diagnose"}:
+        manager.doctor()
+        return 0
     if command in {"use", "switch", "sw"}:
         if not args:
             manager.fail(

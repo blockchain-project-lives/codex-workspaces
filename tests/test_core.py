@@ -187,3 +187,19 @@ class TestWorkspaceManager:
         manager.switch_workspace("work", ["--no-stop"], ["switch", "work", "--no-stop"])
 
         assert platform.delegate_calls == [("switch workspaces", ["switch", "work", "--no-stop"])]
+
+    def test_doctor_reports_environment_and_current_state(self, tmp_path: Path) -> None:
+        manager, stdout, _ = make_manager(tmp_path)
+        manager.create_workspace("work", [])
+        manager.switch_workspace("work", ["--no-stop", "--no-start"], ["switch", "work"])
+        stdout.seek(0)
+        stdout.truncate(0)
+
+        manager.doctor()
+
+        output = stdout.getvalue()
+        assert "Codex workspaces doctor" in output
+        assert "python:" in output
+        assert "platform:" in output
+        assert "workspaces found: 1" in output
+        assert "current state: work ->" in output

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import glob
 import os
+import platform as platform_module
 import re
 import shlex
 import shutil
@@ -177,6 +178,43 @@ class WorkspaceManager:
         assert current.path is not None
         name = self.current_name(current.path) or "unknown"
         self.info(f"{name} -> {current.path}")
+
+    def doctor(self) -> None:
+        current = self.current_target()
+        workspaces = self.workspace_dirs()
+        prefix_parent = Path(self.config.workspace_prefix).parent
+
+        self.info(self.bold(self.message("Codex 工作区诊断", "Codex workspaces doctor")))
+        self.info(f"python: {platform_module.python_version()} ({sys.executable})")
+        self.info(f"platform: {platform_module.system()} {platform_module.release()}")
+        self.info(f"app: {self.config.app_name}")
+        self.info(f"active link: {self.config.active_link}")
+        self.info(f"workspace prefix: {self.config.workspace_prefix}")
+        self.info(f"workspace parent: {prefix_parent}")
+        self.info(f"workspace parent exists: {self._yes_no(prefix_parent.exists())}")
+        self.info(f"workspace parent writable: {self._yes_no(os.access(prefix_parent, os.W_OK))}")
+        self.info(f"workspaces found: {len(workspaces)}")
+
+        if current.kind == "missing":
+            self.info("current state: missing")
+        elif current.kind == "not-a-link":
+            self.info("current state: exists but is not a link")
+        elif current.path:
+            name = self.current_name(current.path) or "unknown"
+            self.info(f"current state: {name} -> {current.path}")
+
+        self.info(f"directory link support: {self._yes_no(self._can_attempt_directory_links())}")
+        self.info(f"app control support: {self._yes_no(self.platform.supports_app_control)}")
+        running = self.platform.app_running_status(self.config.app_name)
+        running_text = "unknown" if running is None else self._yes_no(running)
+        self.info(f"app running: {running_text}")
+        self.info(f"codex terminal detected: {self._yes_no(self.platform.is_codex_terminal())}")
+
+    def _yes_no(self, value: bool) -> str:
+        return self.message("是" if value else "否", "yes" if value else "no")
+
+    def _can_attempt_directory_links(self) -> bool:
+        return hasattr(os, "symlink") or self.platform.is_windows
 
     def stop_codex(self, force: bool = False, argv: Optional[Sequence[str]] = None) -> None:
         if self.platform.is_codex_terminal():
@@ -450,6 +488,9 @@ def usage(lang: str) -> str:
   codex-workspaces current
       显示当前 ~/.codex 指向哪个工作区。
 
+  codex-workspaces doctor
+      输出路径、平台、App 控制和当前工作区状态诊断。
+
   codex-workspaces use <工作区名> [--no-stop] [--no-start] [--force]
   codex-workspaces switch <工作区名> [--no-stop] [--no-start] [--force]
   codex-workspaces <工作区名>
@@ -496,6 +537,9 @@ Usage:
 
   codex-workspaces current
       Show where ~/.codex currently points.
+
+  codex-workspaces doctor
+      Print path, platform, app-control, and current workspace diagnostics.
 
   codex-workspaces use <workspace> [--no-stop] [--no-start] [--force]
   codex-workspaces switch <workspace> [--no-stop] [--no-start] [--force]

@@ -675,7 +675,8 @@ class TestWorkspaceManager:
         manager.accounts_export(str(backup), ["--include-auth", "--yes", "--account", "work"])
 
         assert backup.is_file()
-        assert stat.S_IMODE(backup.stat().st_mode) == 0o600
+        if os.name == "posix":
+            assert stat.S_IMODE(backup.stat().st_mode) == 0o600
         with tarfile.open(backup, "r:gz") as archive:
             names = archive.getnames()
         assert "codex-workspaces-accounts-backup/accounts/acct_work/auth.json" in names

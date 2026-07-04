@@ -4,7 +4,7 @@ All notable changes to `codex-workspaces` will be documented in this file.
 
 This project follows a simple changelog format while it is still pre-release.
 
-## 0.3.2 - 2026-07-04
+## 0.3.3 - 2026-07-04
 
 ### Added
 
@@ -23,7 +23,7 @@ This project follows a simple changelog format while it is still pre-release.
 
 - Improved account list/info metadata enrichment while keeping auth parsing optional and non-blocking.
 - Improved local stats presentation while keeping all statistics local and read-only.
-- Updated README, design, testing, release, and changelog docs for the 0.3.2 workflow.
+- Updated README, design, testing, release, and changelog docs for the 0.3.3 workflow.
 
 ### Security
 

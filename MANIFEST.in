@@ -1,5 +1,4 @@
 include CHANGELOG.md
 include README.zh-CN.md
-include codex-workspaces
 recursive-include docs *.md
 recursive-include tests *.py

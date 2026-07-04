@@ -33,7 +33,7 @@ src/codex_workspaces/
   errors.py      可预期命令错误
 ```
 
-根目录的 `codex-workspaces` Bash 脚本继续保留，供 macOS shell 用户使用。Python 包通过 `pyproject.toml` 暴露同名 console script。
+`macos/codex-workspaces` Bash 脚本继续保留，供 macOS shell 用户使用。根目录保留为 Python 项目入口，Python 包通过 `pyproject.toml` 暴露同名 console script。
 
 ## 数据模型
 
@@ -87,12 +87,12 @@ Windows：
 
 - 变量：`CODEX_WORKSPACES_LINK`、`CODEX_WORKSPACES_PREFIX`、`CODEX_WORKSPACES_LANG`。
 
-Python CLI 和 Bash 脚本可以共存。通过 PyPI/pipx 安装时，`codex-workspaces` 命令来自 Python 包；直接执行仓库根目录 `./codex-workspaces` 时，仍是 Bash 脚本。
+Python CLI 和 Bash 脚本可以共存。通过 PyPI/pipx 安装时，`codex-workspaces` 命令来自 Python 包；直接执行仓库里的 `macos/codex-workspaces` 时，使用的是 macOS Bash 脚本。
 
 ## 发布设计
 
 - `pyproject.toml` 使用 setuptools 构建 wheel 和 sdist。
 - console script：`codex-workspaces = codex_workspaces.cli:main`。
-- sdist 通过 `MANIFEST.in` 包含 README、CHANGELOG、docs、tests 和原 Bash 脚本。
+- sdist 通过 `MANIFEST.in` 包含 README、CHANGELOG、docs、tests 和 `macos/` 下的原 Bash 脚本。
 - GitHub CI 负责多平台测试和包检查。
 - GitHub Release 触发 PyPI Trusted Publishing。

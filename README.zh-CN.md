@@ -7,7 +7,7 @@
 项目现在有两个入口：
 
 - 跨平台 Python 3 CLI，支持 Linux、macOS 和 Windows。
-- 原来的 macOS Bash 脚本，仍保留在 [`codex-workspaces`](codex-workspaces)，兼容已经使用 shell 安装方式的用户。
+- 原来的 macOS Bash 脚本，仍保留在 [`codex-workspaces`](macos/codex-workspaces)，兼容已经使用 shell 安装方式的用户。
 
 在 macOS 上，Python CLI 保留原来的 App 流程：关闭 Codex App、切换工作区链接、再启动 Codex App。在 Linux 和 Windows 上，CLI 会跳过 App 启停，只切换工作区链接。
 
@@ -48,10 +48,10 @@ pipx install codex-workspaces
 python3 -m pip install -e ".[dev]"
 ```
 
-旧版 macOS shell 安装方式仍可使用：
+旧版 macOS shell 安装方式仍可从 `macos/` 目录使用：
 
 ```bash
-tmp="$(mktemp -t codex-workspaces.XXXXXX)" && curl -fsSL https://raw.githubusercontent.com/blockchain-project-lives/codex-workspaces/main/codex-workspaces -o "$tmp" && bash "$tmp" install && rm -f "$tmp"
+tmp="$(mktemp -t codex-workspaces.XXXXXX)" && curl -fsSL https://raw.githubusercontent.com/blockchain-project-lives/codex-workspaces/main/macos/codex-workspaces -o "$tmp" && bash "$tmp" install && rm -f "$tmp"
 ```
 
 ## 工作区目录

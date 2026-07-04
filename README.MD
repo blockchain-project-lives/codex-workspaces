@@ -7,7 +7,7 @@ English | [简体中文](README.zh-CN.md) | [Changelog](CHANGELOG.md)
 The project now has two entry points:
 
 - A cross-platform Python 3 CLI for Linux, macOS, and Windows.
-- The original macOS Bash script, still kept at [`codex-workspaces`](codex-workspaces), for users who installed the shell workflow directly.
+- The original macOS Bash script, still kept at [`macos/codex-workspaces`](macos/codex-workspaces), for users who installed the shell workflow directly.
 
 On macOS, the Python CLI preserves the original app workflow: stop Codex App, switch the workspace link, and start Codex App again. On Linux and Windows, app control is skipped and the CLI only switches the workspace link.
 
@@ -48,10 +48,10 @@ Install from a local checkout for development:
 python3 -m pip install -e ".[dev]"
 ```
 
-The legacy macOS shell installer is still available:
+The legacy macOS shell installer is still available from the `macos/` directory:
 
 ```bash
-tmp="$(mktemp -t codex-workspaces.XXXXXX)" && curl -fsSL https://raw.githubusercontent.com/blockchain-project-lives/codex-workspaces/main/codex-workspaces -o "$tmp" && bash "$tmp" install && rm -f "$tmp"
+tmp="$(mktemp -t codex-workspaces.XXXXXX)" && curl -fsSL https://raw.githubusercontent.com/blockchain-project-lives/codex-workspaces/main/macos/codex-workspaces -o "$tmp" && bash "$tmp" install && rm -f "$tmp"
 ```
 
 ## Workspace Layout

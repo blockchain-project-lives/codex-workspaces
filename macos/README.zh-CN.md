@@ -33,13 +33,13 @@
 在远程机器上从 `main` 分支直接安装：
 
 ```bash
-tmp="$(mktemp -t codex-workspaces.XXXXXX)" && curl -fsSL https://raw.githubusercontent.com/blockchain-project-lives/codex-workspaces/main/codex-workspaces -o "$tmp" && bash "$tmp" install && rm -f "$tmp"
+tmp="$(mktemp -t codex-workspaces.XXXXXX)" && curl -fsSL https://raw.githubusercontent.com/blockchain-project-lives/codex-workspaces/main/macos/codex-workspaces -o "$tmp" && bash "$tmp" install && rm -f "$tmp"
 ```
 
 默认情况下，安装器会尽量选择一个已经在 `PATH` 中且可写的目录。你也可以显式指定安装目录：
 
 ```bash
-tmp="$(mktemp -t codex-workspaces.XXXXXX)" && curl -fsSL https://raw.githubusercontent.com/blockchain-project-lives/codex-workspaces/main/codex-workspaces -o "$tmp" && bash "$tmp" install "$HOME/.local/bin" && rm -f "$tmp"
+tmp="$(mktemp -t codex-workspaces.XXXXXX)" && curl -fsSL https://raw.githubusercontent.com/blockchain-project-lives/codex-workspaces/main/macos/codex-workspaces -o "$tmp" && bash "$tmp" install "$HOME/.local/bin" && rm -f "$tmp"
 ```
 
 这里先把脚本下载到临时文件，再执行 `install`，是因为安装逻辑需要复制脚本文件自身。

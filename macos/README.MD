@@ -33,13 +33,13 @@ If your app name is different, set `CODEX_APP_NAME`.
 Install directly from the `main` branch on a remote machine:
 
 ```bash
-tmp="$(mktemp -t codex-workspaces.XXXXXX)" && curl -fsSL https://raw.githubusercontent.com/blockchain-project-lives/codex-workspaces/main/codex-workspaces -o "$tmp" && bash "$tmp" install && rm -f "$tmp"
+tmp="$(mktemp -t codex-workspaces.XXXXXX)" && curl -fsSL https://raw.githubusercontent.com/blockchain-project-lives/codex-workspaces/main/macos/codex-workspaces -o "$tmp" && bash "$tmp" install && rm -f "$tmp"
 ```
 
 By default, the installer chooses a writable directory that is already in `PATH` when possible. You can also choose the destination explicitly:
 
 ```bash
-tmp="$(mktemp -t codex-workspaces.XXXXXX)" && curl -fsSL https://raw.githubusercontent.com/blockchain-project-lives/codex-workspaces/main/codex-workspaces -o "$tmp" && bash "$tmp" install "$HOME/.local/bin" && rm -f "$tmp"
+tmp="$(mktemp -t codex-workspaces.XXXXXX)" && curl -fsSL https://raw.githubusercontent.com/blockchain-project-lives/codex-workspaces/main/macos/codex-workspaces -o "$tmp" && bash "$tmp" install "$HOME/.local/bin" && rm -f "$tmp"
 ```
 
 The command downloads the script to a temporary file before running `install` because the installer copies the script file itself.

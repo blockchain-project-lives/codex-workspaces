@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import os
 import sqlite3
+import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -11,6 +12,7 @@ import pytest
 from codex_workspaces.config import Config
 from codex_workspaces.core import WorkspaceManager, strip_workspace_name, validate_workspace_name
 from codex_workspaces.errors import CodexWorkspacesError
+import codex_workspaces.platforms as platforms_module
 from codex_workspaces.platforms import SystemPlatform
 
 
@@ -54,6 +56,15 @@ class FakePlatform(SystemPlatform):
 
     def delegate_to_external_terminal(self, config, action, argv, stdout) -> None:
         self.delegate_calls.append((action, list(argv)))
+
+
+class StubbornMacPlatform(SystemPlatform):
+    def __init__(self) -> None:
+        super().__init__(env={})
+        self.system = "darwin"
+
+    def app_running_status(self, app_name: str):
+        return True
 
 
 def make_config(tmp_path: Path, lang: str = "en") -> Config:
@@ -133,6 +144,28 @@ class TestWorkspaceNames:
     def test_validate_workspace_name_rejects_unsafe_names(self, name: str) -> None:
         with pytest.raises(CodexWorkspacesError):
             validate_workspace_name(name)
+
+
+class TestSystemPlatform:
+    def test_force_stop_waits_five_seconds_before_killall(self, monkeypatch) -> None:
+        platform = StubbornMacPlatform()
+        stdout = io.StringIO()
+        calls = []
+        sleeps = []
+
+        def fake_run(args, **kwargs):
+            calls.append(args)
+            return subprocess.CompletedProcess(args, 0)
+
+        monkeypatch.setattr(platforms_module.subprocess, "run", fake_run)
+        monkeypatch.setattr(platforms_module.time, "sleep", lambda seconds: sleeps.append(seconds))
+
+        platform.stop_app("Codex", timeout=20, force=True, stdout=stdout)
+
+        assert ["osascript", "-e", 'tell application "Codex" to quit'] in calls
+        assert ["killall", "Codex"] in calls
+        assert sleeps == [1, 1, 1, 1, 1, 1]
+        assert "did not exit within 5s" in stdout.getvalue()
 
 
 class TestWorkspaceManager:

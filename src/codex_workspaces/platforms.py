@@ -32,6 +32,8 @@ CODEX_DELEGATE_UNSET_ENV = (
     "__CFBundleIdentifier",
 )
 
+FORCE_QUIT_GRACE_SECONDS = 5
+
 
 class SystemPlatform:
     def __init__(
@@ -171,8 +173,9 @@ class SystemPlatform:
             stderr=subprocess.DEVNULL,
         )
 
+        wait_limit = min(timeout, FORCE_QUIT_GRACE_SECONDS) if force else timeout
         waited = 0
-        while self.app_running_status(app_name) and waited < timeout:
+        while self.app_running_status(app_name) and waited < wait_limit:
             time.sleep(1)
             waited += 1
 
@@ -181,7 +184,7 @@ class SystemPlatform:
                 raise CodexWorkspacesError(
                     f"{app_name} did not exit within {timeout}s; add --force to force quit"
                 )
-            print(f"{app_name} did not exit within {timeout}s; forcing it to quit.", file=stdout)
+            print(f"{app_name} did not exit within {wait_limit}s; forcing it to quit.", file=stdout)
             subprocess.run(
                 ["killall", app_name],
                 check=False,

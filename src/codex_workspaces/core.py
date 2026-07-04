@@ -28,6 +28,7 @@ from .stats import ModelUsage, StatsBundle, StatsError, WorkspaceStats, combine_
 
 WORKSPACE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 NOTE_FILE = ".codex-workspace-note"
+INTERNAL_WORKSPACE_FILES = {".codex-workspace.json", NOTE_FILE}
 
 
 def strip_workspace_name(value: str) -> str:
@@ -221,6 +222,8 @@ class WorkspaceManager:
             current = stack.pop()
             try:
                 for entry in os.scandir(current):
+                    if self.is_internal_workspace_file(Path(entry.path)):
+                        continue
                     try:
                         stat_result = entry.stat(follow_symlinks=False)
                     except OSError:
@@ -232,6 +235,9 @@ class WorkspaceManager:
             except OSError:
                 continue
         return total
+
+    def is_internal_workspace_file(self, path: Path) -> bool:
+        return path.name in INTERNAL_WORKSPACE_FILES
 
     def format_size(self, size: int) -> str:
         units = ["B", "KB", "MB", "GB", "TB"]

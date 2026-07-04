@@ -41,8 +41,15 @@ def run(argv: Sequence[str], manager: WorkspaceManager) -> int:
     if command == "accounts":
         return run_accounts(args, manager)
     if command == "stats":
+        views = {"summary", "daily", "models", "workspaces", "accounts"}
+        view = "summary"
         name = None
         days = 7
+        from_date = None
+        to_date = None
+        account = None
+        output_format = "table"
+        no_color = False
         index = 0
         while index < len(args):
             arg = args[index]
@@ -56,14 +63,62 @@ def run(argv: Sequence[str], manager: WorkspaceManager) -> int:
                 days = _parse_days(args[index], manager)
             elif arg.startswith("--days="):
                 days = _parse_days(arg.split("=", 1)[1], manager)
+            elif arg == "--from":
+                index += 1
+                if index >= len(args):
+                    manager.fail("缺少 --from 日期", "Missing value for --from")
+                from_date = args[index]
+            elif arg.startswith("--from="):
+                from_date = arg.split("=", 1)[1]
+            elif arg == "--to":
+                index += 1
+                if index >= len(args):
+                    manager.fail("缺少 --to 日期", "Missing value for --to")
+                to_date = args[index]
+            elif arg.startswith("--to="):
+                to_date = arg.split("=", 1)[1]
+            elif arg == "--workspace":
+                index += 1
+                if index >= len(args):
+                    manager.fail("缺少 --workspace 名称", "Missing value for --workspace")
+                name = args[index]
+            elif arg.startswith("--workspace="):
+                name = arg.split("=", 1)[1]
+            elif arg == "--account":
+                index += 1
+                if index >= len(args):
+                    manager.fail("缺少 --account 名称", "Missing value for --account")
+                account = args[index]
+            elif arg.startswith("--account="):
+                account = arg.split("=", 1)[1]
+            elif arg == "--format":
+                index += 1
+                if index >= len(args):
+                    manager.fail("缺少 --format 值", "Missing value for --format")
+                output_format = _parse_stats_format(args[index], manager)
+            elif arg.startswith("--format="):
+                output_format = _parse_stats_format(arg.split("=", 1)[1], manager)
+            elif arg == "--no-color":
+                no_color = True
             elif arg.startswith("-"):
                 manager.fail(f"未知参数: {arg}", f"Unknown option: {arg}")
+            elif arg in views and view == "summary" and name is None:
+                view = arg
             elif name is None:
                 name = arg
             else:
                 manager.fail(f"未知参数: {arg}", f"Unknown option: {arg}")
             index += 1
-        manager.show_stats(name, days)
+        manager.show_stats(
+            name,
+            days,
+            view=view,
+            from_date=from_date,
+            to_date=to_date,
+            account=account,
+            output_format=output_format,
+            no_color=no_color,
+        )
         return 0
     if command in {"use", "switch", "sw"}:
         if not args:
@@ -208,6 +263,30 @@ def run_accounts(args: Sequence[str], manager: WorkspaceManager) -> int:
             )
         manager.accounts_save(rest[0])
         return 0
+    if command == "refresh-meta":
+        if not rest:
+            manager.fail(
+                "用法: codex-workspaces accounts refresh-meta <账号>|--all [--overwrite]",
+                "Usage: codex-workspaces accounts refresh-meta <account>|--all [--overwrite]",
+            )
+        manager.accounts_refresh_meta(rest)
+        return 0
+    if command == "export":
+        if not rest:
+            manager.fail(
+                "用法: codex-workspaces accounts export <备份文件> [--all|--account <账号>] [--include-auth] [--yes]",
+                "Usage: codex-workspaces accounts export <backup-file> [--all|--account <account>] [--include-auth] [--yes]",
+            )
+        manager.accounts_export(rest[0], rest[1:])
+        return 0
+    if command == "import":
+        if not rest:
+            manager.fail(
+                "用法: codex-workspaces accounts import <备份文件> [--dry-run] [--rename-conflicts|--overwrite]",
+                "Usage: codex-workspaces accounts import <backup-file> [--dry-run] [--rename-conflicts|--overwrite]",
+            )
+        manager.accounts_import_backup(rest[0], rest[1:])
+        return 0
     if command == "add":
         if not rest:
             manager.fail(
@@ -307,6 +386,12 @@ def _parse_days(value: str, manager: WorkspaceManager) -> int:
     if days < 1 or days > 90:
         manager.fail("--days 必须在 1 到 90 之间", "--days must be between 1 and 90")
     return days
+
+
+def _parse_stats_format(value: str, manager: WorkspaceManager) -> str:
+    if value not in {"table", "json", "markdown"}:
+        manager.fail("--format 必须是 table、json 或 markdown", "--format must be table, json, or markdown")
+    return value
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:

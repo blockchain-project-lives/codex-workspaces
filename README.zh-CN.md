@@ -19,10 +19,12 @@
 - 初始化带元数据的工作区目录。
 - 通过隔离的临时登录工作区执行 `accounts add --login`，新增账号而不退出当前账号。
 - 通过 `accounts use` 临时切换当前工作区账号，并可恢复工作区默认账号。
+- 从本地 `auth.json` best-effort 解析 email/account 等元信息，不发网络请求。
+- 导出和导入账号快照备份包；包含 auth 的备份会明确提示凭据风险。
 - 查看工作区/账号元数据，并通过 `doctor` 做账号诊断。
 - 迁移旧版 `~/.codex-<name>` 工作区，并导入旧 `~/.codex-accounts` 账号快照。
 - 保留 macOS 上 Codex App 的 `stop`、`start`、`restart`。
-- 以只读方式读取 Codex `state_*.sqlite`，展示本地 token 用量统计。
+- 以只读方式读取 Codex `state_*.sqlite`，展示每日、模型、工作区、账号、JSON 和 Markdown 形式的本地 token 统计。
 - 在检测到 Codex 内置 Terminal 且无法安全转交时，阻止危险操作。
 - 支持中英文输出，可通过 `CODEX_WORKSPACES_LANG` 指定。
 - 提供 Python 包、测试、GitHub CI 和 PyPI 发布工作流。
@@ -131,6 +133,19 @@ codex-workspaces accounts add research --login
 
 它会把 `~/.codex` 临时切到 `login-<账号>` 工作区，让你登录新账号；登录生成 `auth.json` 后保存为 `acct_<账号>`，再恢复原工作区。如果登录中断，可用 `codex-workspaces accounts cleanup-login-temp` 清理残留临时工作区。
 
+账号元信息如 `email`、`account_id`、`user_id`、`organization_id`、`plan` 会从本地 `auth.json` best-effort 解析。解析失败不会影响账号功能，不会打印 token/secret/cookie 等敏感字段，也不会调用私有接口或发起网络请求。
+
+导出或导入账号备份：
+
+```bash
+codex-workspaces accounts export accounts.tar.gz --all
+codex-workspaces accounts export accounts-with-auth.tar.gz --all --include-auth --yes
+codex-workspaces accounts import accounts-with-auth.tar.gz --dry-run
+codex-workspaces accounts import accounts-with-auth.tar.gz --rename-conflicts
+```
+
+使用 `--include-auth` 创建的备份包包含 `auth.json` 里的 Codex 凭据，必须安全保存，不能提交到 git。不带 `--include-auth` 时只导出 meta，不包含 auth。
+
 导入旧 `codex-accounts` 的 AUTH 模式账号快照：
 
 ```bash
@@ -159,8 +174,15 @@ codex-workspaces current
 codex-workspaces info work
 codex-workspaces doctor
 codex-workspaces stats
+codex-workspaces stats summary --days 30
+codex-workspaces stats daily --format markdown
+codex-workspaces stats models --format json
+codex-workspaces stats workspaces
+codex-workspaces stats accounts
 codex-workspaces stats work --days 14
 ```
+
+`stats` 只读取本地 SQLite 状态文件。无法识别的 workspace/account/model 会显示为 `unknown`；统计结果取决于各工作区里实际存在的 Codex 本地文件。
 
 在当前工作区临时切换账号：
 

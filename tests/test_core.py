@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 import io
+import json
 import os
 import sqlite3
+import stat
 import subprocess
+import tarfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
 from codex_workspaces.config import Config
+from codex_workspaces.auth_inspector import inspect_auth_file
 from codex_workspaces.core import WorkspaceManager, strip_workspace_name, validate_workspace_name
 from codex_workspaces.errors import CodexWorkspacesError
 import codex_workspaces.platforms as platforms_module
@@ -69,7 +73,7 @@ class StubbornMacPlatform(SystemPlatform):
 
 def make_config(tmp_path: Path, lang: str = "en", restore_policy: str = "workspace-default") -> Config:
     home = tmp_path / "home"
-    home.mkdir()
+    home.mkdir(parents=True)
     root = home / ".codex-workspaces"
     workspaces = root / "workspaces"
     accounts = root / "accounts"
@@ -131,6 +135,82 @@ def seed_state_db(path: Path) -> None:
         conn.close()
 
 
+def seed_detailed_state_db(path: Path) -> None:
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute(
+            """
+            CREATE TABLE threads (
+                title TEXT,
+                model TEXT,
+                input_tokens INTEGER,
+                output_tokens INTEGER,
+                created_at TEXT,
+                created_at_ms INTEGER
+            )
+            """
+        )
+        now = datetime.now(timezone.utc)
+        rows = [
+            ("Build docs", "gpt-5.5", 1000, 300, now.isoformat(), int(now.timestamp() * 1000)),
+            ("Fix tests", "gpt-5.4", 2500, 700, (now - timedelta(days=1)).isoformat(), int((now - timedelta(days=1)).timestamp() * 1000)),
+            ("Old task", "gpt-5.5", 4000, 900, (now - timedelta(days=20)).isoformat(), int((now - timedelta(days=20)).timestamp() * 1000)),
+        ]
+        conn.executemany(
+            "INSERT INTO threads (title, model, input_tokens, output_tokens, created_at, created_at_ms) VALUES (?, ?, ?, ?, ?, ?)",
+            rows,
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def build_account_backup(path: Path, *, auth_payload: bytes, auth_hash_value: str) -> None:
+    root = path.parent / "backup-root"
+    account_dir = root / "codex-workspaces-accounts-backup" / "accounts" / "acct_work"
+    account_dir.mkdir(parents=True)
+    (root / "codex-workspaces-accounts-backup" / "manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "kind": "codex-workspaces.accounts.backup",
+                "created_at": "2026-07-04T20:00:00+08:00",
+                "tool_version": "test",
+                "include_auth": True,
+                "accounts": [{"id": "acct_work", "name": "work", "source": "manual", "auth_hash": auth_hash_value}],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (account_dir / "meta.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "id": "acct_work",
+                "name": "work",
+                "source": "manual",
+                "bound_workspace": None,
+                "email": None,
+                "plan": None,
+                "account_id": None,
+                "user_id": None,
+                "organization_id": None,
+                "auth_hash": auth_hash_value,
+                "created_at": "2026-07-04T20:00:00+08:00",
+                "updated_at": "2026-07-04T20:00:00+08:00",
+                "last_used_at": None,
+                "notes": "",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (account_dir / "auth.json").write_bytes(auth_payload)
+    with tarfile.open(path, "w:gz") as archive:
+        archive.add(root / "codex-workspaces-accounts-backup", arcname="codex-workspaces-accounts-backup")
+
+
 class TestWorkspaceNames:
     def test_strip_workspace_name_accepts_paths_and_prefixed_names(self) -> None:
         assert strip_workspace_name("/Users/example/.codex-work") == "work"
@@ -145,6 +225,46 @@ class TestWorkspaceNames:
     def test_validate_workspace_name_rejects_unsafe_names(self, name: str) -> None:
         with pytest.raises(CodexWorkspacesError):
             validate_workspace_name(name)
+
+
+class TestAuthInspector:
+    def test_inspects_nested_auth_metadata_without_sensitive_keys(self, tmp_path: Path) -> None:
+        auth_path = tmp_path / "auth.json"
+        auth_path.write_text(
+            json.dumps(
+                {
+                    "profile": {
+                        "email": "dev@example.com",
+                        "account_id": "acc_123",
+                        "user": {"id": "usr_123"},
+                        "organization": {"id": "org_123"},
+                        "plan": "pro",
+                        "access_token": "secret-token",
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        inspection = inspect_auth_file(auth_path)
+
+        assert inspection.email == "dev@example.com"
+        assert inspection.account_id == "acc_123"
+        assert inspection.user_id in {"usr_123", "id"}
+        assert inspection.organization_id == "org_123"
+        assert inspection.plan == "pro"
+        assert inspection.auth_hash.startswith("sha256:")
+        assert "access_token" not in inspection.raw_keys
+
+    def test_inspector_warns_on_invalid_json(self, tmp_path: Path) -> None:
+        auth_path = tmp_path / "auth.json"
+        auth_path.write_text("{broken", encoding="utf-8")
+
+        inspection = inspect_auth_file(auth_path)
+
+        assert inspection.auth_hash.startswith("sha256:")
+        assert inspection.email is None
+        assert inspection.warnings
 
 
 class TestSystemPlatform:
@@ -307,7 +427,7 @@ class TestWorkspaceManager:
 
         output = stdout.getvalue()
         assert "Codex workspace stats: work" in output
-        assert "total tokens: 7,500" in output
+        assert "total tokens: 3,500" in output
         assert "last 7 days: 3,500 (2 sessions)" in output
         assert "by model:" in output
         assert "daily tokens last 7 days:" in output
@@ -325,6 +445,37 @@ class TestWorkspaceManager:
         output = stdout.getvalue()
         assert "state_6.sqlite" in output
         assert "daily tokens last 3 days:" in output
+
+    def test_stats_summary_json_markdown_and_aggregates(self, tmp_path: Path) -> None:
+        manager, stdout, _ = make_manager(tmp_path)
+        manager.init_workspace("work", [])
+        manager.init_workspace("personal", [])
+        seed_detailed_state_db(manager.workspace_dir("work") / "state_5.sqlite")
+        seed_detailed_state_db(manager.workspace_dir("personal") / "state_5.sqlite")
+        meta = manager.store.ensure_workspace_meta("work", manager.workspace_dir("work"))
+        meta.active_account_id = "acct_work"
+        manager.store.write_workspace_meta(manager.workspace_dir("work"), meta)
+
+        manager.show_stats(view="models", days=30)
+        output = stdout.getvalue()
+        assert "Stats Summary" in output
+        assert "Top Models:" in output
+        assert "gpt-5.5" in output
+
+        stdout.seek(0)
+        stdout.truncate(0)
+        manager.show_stats(view="daily", days=2, output_format="markdown")
+        assert "| Date | Input | Output | Total | Sessions |" in stdout.getvalue()
+
+        stdout.seek(0)
+        stdout.truncate(0)
+        manager.show_stats(view="accounts", days=30, output_format="json")
+        data = json.loads(stdout.getvalue())
+        assert data["totals"]["input_tokens"] > 0
+        assert data["daily"]
+        assert data["models"][0]["model"]
+        assert data["workspaces"]
+        assert data["accounts"]
 
     def test_stats_reports_missing_database(self, tmp_path: Path) -> None:
         manager, _, _ = make_manager(tmp_path)
@@ -443,6 +594,126 @@ class TestWorkspaceManager:
         assert "auth_exists: yes" in info_output
         assert "default_workspaces: work" in info_output
         assert "auth_hash: sha256:" in info_output
+
+    def test_accounts_save_parses_auth_metadata_without_overwriting_existing_meta(self, tmp_path: Path) -> None:
+        manager, _, _ = make_manager(tmp_path)
+        manager.init_workspace("work", [])
+        manager.switch_workspace("work", ["--no-stop", "--no-start"], ["switch", "work"])
+        auth_path = manager.workspace_dir("work") / "auth.json"
+        auth_path.write_text(
+            json.dumps(
+                {
+                    "email": "parsed@example.com",
+                    "account_id": "acc_123",
+                    "user": {"id": "usr_123"},
+                    "organization": {"id": "org_123"},
+                    "plan": "pro",
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        manager.accounts_save("work")
+        meta = manager.store.read_account_meta("acct_work")
+        assert meta.email == "parsed@example.com"
+        assert meta.account_id == "acc_123"
+        assert meta.user_id == "usr_123"
+        assert meta.organization_id == "org_123"
+        assert meta.plan == "pro"
+
+        meta.email = "manual@example.com"
+        manager.store.write_account_meta(meta)
+        auth_path.write_text('{"email":"new@example.com"}\n', encoding="utf-8")
+        manager.accounts_save("work")
+        assert manager.store.read_account_meta("acct_work").email == "manual@example.com"
+
+        manager.accounts_refresh_meta(["work", "--overwrite"])
+        assert manager.store.read_account_meta("acct_work").email == "new@example.com"
+
+    def test_accounts_export_import_backup_workflow(self, tmp_path: Path) -> None:
+        manager, _, _ = make_manager(tmp_path)
+        manager.init_workspace("work", [])
+        manager.switch_workspace("work", ["--no-stop", "--no-start"], ["switch", "work"])
+        (manager.workspace_dir("work") / "auth.json").write_text('{"email":"work@example.com"}\n', encoding="utf-8")
+        manager.accounts_save("work")
+        backup = tmp_path / "accounts.tar.gz"
+
+        manager.accounts_export(str(backup), ["--include-auth", "--yes", "--account", "work"])
+
+        assert backup.is_file()
+        assert stat.S_IMODE(backup.stat().st_mode) == 0o600
+        with tarfile.open(backup, "r:gz") as archive:
+            names = archive.getnames()
+        assert "codex-workspaces-accounts-backup/accounts/acct_work/auth.json" in names
+
+        imported, imported_stdout, _ = make_manager(tmp_path / "imported")
+        imported.accounts_import_backup(str(backup), ["--dry-run"])
+        assert not imported.store.account_dir("acct_work").exists()
+        assert "will import:" in imported_stdout.getvalue()
+
+        imported.accounts_import_backup(str(backup), [])
+        assert imported.store.account_auth_path("acct_work").is_file()
+        assert stat.S_IMODE(imported.store.account_auth_path("acct_work").stat().st_mode) == 0o600
+        assert imported.store.read_account_meta("acct_work").email == "work@example.com"
+
+        imported.accounts_import_backup(str(backup), [])
+        assert "will skip existing:" in imported_stdout.getvalue()
+
+        imported.accounts_import_backup(str(backup), ["--rename-conflicts"])
+        assert any(account.id.startswith("acct_work_imported_") for account in imported.store.list_accounts())
+
+    def test_accounts_export_without_include_auth_is_meta_only(self, tmp_path: Path) -> None:
+        manager, _, _ = make_manager(tmp_path)
+        manager.accounts_init("work")
+        backup = tmp_path / "meta-only.tar.gz"
+
+        manager.accounts_export(str(backup), ["--all"])
+
+        with tarfile.open(backup, "r:gz") as archive:
+            names = archive.getnames()
+        assert "codex-workspaces-accounts-backup/accounts/acct_work/meta.json" in names
+        assert "codex-workspaces-accounts-backup/accounts/acct_work/auth.json" not in names
+
+    def test_accounts_import_overwrite_backs_up_existing_account(self, tmp_path: Path) -> None:
+        source, _, _ = make_manager(tmp_path / "source")
+        source.accounts_init("work")
+        backup_auth = source.store.account_dir("acct_work") / "auth.json"
+        backup_auth.write_text('{"email":"new@example.com"}\n', encoding="utf-8")
+        source.store.save_auth_to_account("acct_work", backup_auth)
+        backup = tmp_path / "overwrite.tar.gz"
+        source.accounts_export(str(backup), ["--include-auth", "--yes", "--all"])
+
+        target, _, _ = make_manager(tmp_path / "target")
+        target.accounts_init("work")
+        old_auth = target.store.account_dir("acct_work") / "auth.json"
+        old_auth.write_text('{"email":"old@example.com"}\n', encoding="utf-8")
+        target.store.save_auth_to_account("acct_work", old_auth)
+
+        target.accounts_import_backup(str(backup), ["--overwrite"])
+
+        assert target.store.read_account_meta("acct_work").email == "new@example.com"
+        assert any(target.config.backups_dir.glob("*/before-account-import/acct_work/meta.json"))
+
+    def test_accounts_import_rejects_bad_hash_and_unsafe_tar_path(self, tmp_path: Path) -> None:
+        manager, _, _ = make_manager(tmp_path)
+        manager.accounts_init("work")
+        auth = manager.store.account_dir("acct_work") / "auth.json"
+        auth.write_text('{"email":"work@example.com"}\n', encoding="utf-8")
+        manager.store.save_auth_to_account("acct_work", auth)
+        mismatch = tmp_path / "mismatch.tar.gz"
+        build_account_backup(mismatch, auth_payload=b'{"changed":true}\n', auth_hash_value="sha256:not-the-real-hash")
+
+        with pytest.raises(CodexWorkspacesError, match="auth_hash mismatch"):
+            manager.accounts_import_backup(str(mismatch), ["--dry-run"])
+
+        unsafe = tmp_path / "unsafe.tar.gz"
+        with tarfile.open(unsafe, "w:gz") as archive:
+            payload = tmp_path / "payload.txt"
+            payload.write_text("bad", encoding="utf-8")
+            archive.add(payload, arcname="../evil.txt")
+        with pytest.raises(CodexWorkspacesError, match="Unsafe backup path"):
+            manager.accounts_import_backup(str(unsafe), ["--dry-run"])
 
     def test_restore_policy_last_active_keeps_workspace_active_account(self, tmp_path: Path) -> None:
         manager, _, _ = make_manager(tmp_path, restore_policy="last-active")

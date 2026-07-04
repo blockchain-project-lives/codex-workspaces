@@ -85,10 +85,15 @@ Windows：
 - 切换 workspace 前会保存当前 live `auth.json` 到 `active_account_id` 对应账号快照。
 - `accounts use` 只修改当前 workspace 的 `active_account_id`，不修改 `default_account_id`。
 - 进入 workspace 时按策略恢复账号：`workspace-default` 恢复默认账号，`last-active` 恢复该 workspace 上次活跃账号，`keep-current` 尽量沿用刚才正在使用的账号。
+- `auth.json` 元信息解析只做本地 best-effort 递归扫描，用于补全 email/account_id/user_id/organization_id/plan/auth_hash；解析失败不影响切换和账号功能。
+- auth 解析不会打印 token、secret、credential、authorization、refresh、access、cookie 等敏感字段，不刷新 token，不调用私有接口，不发网络请求。
+- `accounts export` 默认只导出 meta；必须显式 `--include-auth` 并确认后才导出 `auth.json` 凭据。
+- `accounts import` 解包前校验 tar 条目，拒绝路径穿越、绝对路径、symlink、硬链接和设备文件；导入 auth 后保持 0600 权限，覆盖前写入备份。
 - `migrate --dry-run` 只打印计划，不创建目录、不写元数据。
 - `migrate` 会先备份当前 `~/.codex`、旧 workspace 和旧账号目录，再复制到统一目录；旧目录不会被自动删除。
 - 如果当前 `~/.codex` 是真实目录，批量 `migrate` 会拒绝覆盖；应使用 `init <name> --migrate-current` 显式迁移当前目录。
 - `stats` 只以 read-only SQLite URI 读取 `state_*.sqlite`，不写入 Codex 数据库。
+- `stats` 聚合每日、模型、workspace、account 维度；无法推断的 workspace/account/model 显示为 `unknown`。
 - 不实现 `quota`/`refresh` 这类依赖私有接口或私有行为的功能。
 - macOS 上迁移前必须确认 Codex App 未运行。
 - Codex 内置 Terminal 中的危险命令要么转交外部 Terminal，要么拒绝。
@@ -110,6 +115,10 @@ Windows：
 - `codex-workspaces accounts add <account> --login`
 - `codex-workspaces accounts login-temp <account>`
 - `codex-workspaces accounts cleanup-login-temp`
+- `codex-workspaces accounts refresh-meta <account>|--all [--overwrite]`
+- `codex-workspaces accounts export <backup.tar.gz> [--all|--account <account>] [--include-auth] [--yes]`
+- `codex-workspaces accounts import <backup.tar.gz> [--dry-run] [--rename-conflicts|--overwrite]`
+- `codex-workspaces stats [summary|daily|models|workspaces|accounts] [--format table|json|markdown]`
 - `codex-workspaces accounts import-workspaces`
 - `codex-workspaces accounts import-legacy <legacy_accounts_dir>`
 

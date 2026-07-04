@@ -19,10 +19,12 @@ On macOS, the Python CLI preserves the original app workflow: stop Codex App, sw
 - Initialize workspace directories with metadata.
 - Add a new account through an isolated temporary login workspace with `accounts add --login`.
 - Temporarily switch the current workspace account with `accounts use`, then restore the workspace default account.
+- Best-effort parse local `auth.json` metadata such as email/account identifiers without network calls.
+- Export and import account snapshot backups with explicit warnings for credential-bearing archives.
 - Inspect workspace/account metadata and run account-focused `doctor` diagnostics.
 - Migrate older `~/.codex-<name>` workspaces and import legacy `~/.codex-accounts` auth snapshots.
 - Keep macOS Codex App stop/start/restart support.
-- Show local token usage stats from Codex `state_*.sqlite` in read-only mode.
+- Show local token usage stats from Codex `state_*.sqlite` in read-only mode, including daily, model, workspace, account, JSON, and Markdown views.
 - Block unsafe operations from a detected Codex built-in terminal when they cannot be delegated safely.
 - Support English and Chinese output through `CODEX_WORKSPACES_LANG`.
 - Package as a Python project with tests, CI, and PyPI publishing workflow.
@@ -131,6 +133,19 @@ codex-workspaces accounts add research --login
 
 This switches `~/.codex` to a temporary `login-<account>` workspace, lets you log in, saves the generated `auth.json` as `acct_<account>`, and restores the previous workspace. If login is interrupted, clean stale temporary workspaces with `codex-workspaces accounts cleanup-login-temp`.
 
+Account metadata such as `email`, `account_id`, `user_id`, `organization_id`, and `plan` is parsed from local `auth.json` on a best-effort basis. Parsing failures are ignored, sensitive token-like fields are never printed, and no private API or network request is used.
+
+Export or import account backups:
+
+```bash
+codex-workspaces accounts export accounts.tar.gz --all
+codex-workspaces accounts export accounts-with-auth.tar.gz --all --include-auth --yes
+codex-workspaces accounts import accounts-with-auth.tar.gz --dry-run
+codex-workspaces accounts import accounts-with-auth.tar.gz --rename-conflicts
+```
+
+Backups created with `--include-auth` contain Codex credentials from `auth.json`. Store them securely and never commit them to git. Without `--include-auth`, export writes metadata only.
+
 Import legacy `codex-accounts` AUTH-mode snapshots:
 
 ```bash
@@ -159,8 +174,15 @@ codex-workspaces current
 codex-workspaces info work
 codex-workspaces doctor
 codex-workspaces stats
+codex-workspaces stats summary --days 30
+codex-workspaces stats daily --format markdown
+codex-workspaces stats models --format json
+codex-workspaces stats workspaces
+codex-workspaces stats accounts
 codex-workspaces stats work --days 14
 ```
+
+`stats` only reads local SQLite state. Missing or unrecognized workspace/account/model data is shown as `unknown`; results are best-effort and depend on the local Codex files available in each workspace.
 
 Switch accounts within the current workspace:
 

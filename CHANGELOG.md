@@ -4,6 +4,27 @@ All notable changes to `codex-workspaces` will be documented in this file.
 
 This project follows a simple changelog format while it is still pre-release.
 
+## 0.3.2 - 2026-07-04
+
+### Added
+
+- Added best-effort local `auth.json` metadata inspection for account email, account ID, user ID, organization ID, plan, and auth hash without private API calls.
+- Added `accounts refresh-meta <account>|--all [--overwrite]` for manually refreshing parsed account metadata.
+- Added `accounts export` and `accounts import` backup support with meta-only exports by default, explicit `--include-auth` credential export, dry-run import plans, conflict renaming, overwrite with pre-import backup, auth hash validation, and unsafe tar path rejection.
+- Added enhanced local `stats` views for summary, daily usage, top models, workspace aggregation, account aggregation, JSON output, and Markdown output.
+
+### Changed
+
+- Improved account list/info metadata enrichment while keeping auth parsing optional and non-blocking.
+- Improved local stats presentation while keeping all statistics local and read-only.
+- Updated README, design, testing, release, and changelog docs for the 0.3.2 workflow.
+
+### Security
+
+- Added explicit warnings for exports that include `auth.json` credentials.
+- Added backup archive validation against path traversal, symlinks, device files, and auth hash mismatches during import.
+- Kept auth inspection local-only: no token refresh, no private API calls, no network requests, and no sensitive token-like fields in normal output.
+
 ## 0.3.1 - 2026-07-04
 
 ### Added

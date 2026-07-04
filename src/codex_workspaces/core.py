@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import platform as platform_module
 import re
@@ -8,17 +9,19 @@ import shlex
 import shutil
 import stat
 import sys
+import tarfile
+import tempfile
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Iterable, List, Optional, Sequence, TextIO
 
 from .config import Config
 from .errors import CodexWorkspacesError
 from .platforms import SystemPlatform
-from .store import AccountMeta, WorkspaceMeta, WorkspaceStore, copy_auth, iso_now
-from .stats import StatsError, WorkspaceStats, compute_workspace_stats
+from .store import AccountMeta, WorkspaceMeta, WorkspaceStore, auth_hash, chmod_best_effort, copy_auth, iso_now, write_json_atomic
+from .stats import ModelUsage, StatsBundle, StatsError, WorkspaceStats, combine_workspace_stats, compute_workspace_stats
 
 WORKSPACE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 NOTE_FILE = ".codex-workspace-note"
@@ -68,6 +71,14 @@ class LegacyAccountCandidate:
     name: str
     source: Path
     target_id: str
+
+
+@dataclass(frozen=True)
+class AccountImportPlan:
+    will_import: list[str]
+    will_skip: list[str]
+    will_rename: list[tuple[str, str]]
+    will_overwrite: list[str]
 
 
 class WorkspaceManager:
@@ -387,13 +398,103 @@ class WorkspaceManager:
         except OSError:
             return None
 
-    def show_stats(self, name: Optional[str] = None, days: int = 7) -> None:
-        clean_name, directory = self.stats_target(name)
+    def show_stats(
+        self,
+        name: Optional[str] = None,
+        days: int = 7,
+        *,
+        view: str = "summary",
+        from_date: Optional[str] = None,
+        to_date: Optional[str] = None,
+        account: Optional[str] = None,
+        output_format: str = "table",
+        no_color: bool = False,
+    ) -> None:
+        start_day = self.parse_stats_date(from_date, "--from") if from_date else None
+        end_day = self.parse_stats_date(to_date, "--to") if to_date else None
+        if start_day and not end_day:
+            end_day = datetime.now().astimezone().date()
+        if end_day and not start_day:
+            start_day = end_day - timedelta(days=max(1, days) - 1)
+        if start_day and end_day:
+            days = (end_day - start_day).days + 1
+        else:
+            end_day = datetime.now().astimezone().date()
+            start_day = end_day - timedelta(days=max(1, days) - 1)
+
         try:
-            stats = compute_workspace_stats(clean_name, directory, days)
+            stats_list = self.collect_workspace_stats(name, days, start_day, end_day, self.account_id_from_input(account) if account else None)
         except StatsError as exc:
             self.fail(f"无法读取统计数据: {exc}", f"Could not read stats: {exc}")
+        bundle = combine_workspace_stats(stats_list, start_day, end_day)
 
+        if output_format == "json":
+            self.info(json.dumps(self.stats_bundle_to_dict(bundle), ensure_ascii=False, indent=2, sort_keys=True))
+            return
+        if output_format == "markdown":
+            self.render_stats_markdown(bundle, view)
+            return
+
+        if len(stats_list) == 1 and view == "summary":
+            self.render_legacy_workspace_stats(stats_list[0])
+            return
+        self.render_stats_table(bundle, view, no_color=no_color)
+
+    def collect_workspace_stats(
+        self,
+        name: Optional[str],
+        days: int,
+        start_day,
+        end_day,
+        account_id: Optional[str],
+    ) -> list[WorkspaceStats]:
+        targets: list[tuple[str, Path]] = []
+        if name:
+            targets.append(self.stats_target(name))
+            fail_if_missing_db = True
+        else:
+            targets = [(strip_workspace_name(str(path)), path) for path in self.workspace_dirs()]
+            if not targets:
+                targets.append(self.stats_target(None))
+            fail_if_missing_db = False
+
+        stats_list: list[WorkspaceStats] = []
+        for clean_name, directory in targets:
+            workspace_account = self.workspace_stats_account(clean_name, directory)
+            if account_id and workspace_account != account_id:
+                continue
+            try:
+                stats_list.append(
+                    compute_workspace_stats(
+                        clean_name,
+                        directory,
+                        days,
+                        start_day=start_day,
+                        end_day=end_day,
+                        account_id=workspace_account or "unknown",
+                    )
+                )
+            except StatsError:
+                if fail_if_missing_db:
+                    raise
+        if not stats_list:
+            raise StatsError("no readable workspace stats found")
+        return stats_list
+
+    def workspace_stats_account(self, clean_name: str, directory: Path) -> str:
+        try:
+            meta = self.store.ensure_workspace_meta(clean_name, directory)
+        except CodexWorkspacesError:
+            return "unknown"
+        return meta.active_account_id or meta.default_account_id or "unknown"
+
+    def parse_stats_date(self, value: str, option: str):
+        try:
+            return datetime.strptime(value, "%Y-%m-%d").date()
+        except ValueError:
+            self.fail(f"{option} 必须是 YYYY-MM-DD", f"{option} must be YYYY-MM-DD")
+
+    def render_legacy_workspace_stats(self, stats: WorkspaceStats) -> None:
         self.info(self.bold(self.message(f"Codex 工作区统计: {stats.name}", f"Codex workspace stats: {stats.name}")))
         self.info(f"source: {stats.source}")
         self.info(self.message("说明: 本命令只读本地 Codex SQLite，不访问 quota/refresh 私有接口。", "note: this only reads local Codex SQLite; it does not call quota/refresh private APIs."))
@@ -404,6 +505,8 @@ class WorkspaceManager:
             return
 
         self.info(f"sessions: {stats.total_sessions:,}")
+        self.info(f"input tokens: {stats.input_tokens:,}")
+        self.info(f"output tokens: {stats.output_tokens:,}")
         self.info(f"total tokens: {stats.total_tokens:,}")
         self.info(f"last 7 days: {stats.last_7d_tokens:,} ({stats.last_7d_sessions} sessions)")
         self.info(f"last 30 days: {stats.last_30d_tokens:,} ({stats.last_30d_sessions} sessions)")
@@ -439,14 +542,14 @@ class WorkspaceManager:
 
     def render_model_stats(self, stats: WorkspaceStats) -> None:
         self.info(self.message("按模型:", "by model:"))
-        for model, tokens in sorted(stats.by_model.items(), key=lambda item: (-item[1], item[0])):
-            self.info(f"  {model:<22} {tokens:>14,}  {self.bar(tokens, stats.total_tokens)}")
+        for entry in stats.models:
+            self.info(f"  {entry.model:<22} {entry.total_tokens:>14,}  {self.bar(entry.total_tokens, stats.total_tokens)}")
 
     def render_daily_stats(self, stats: WorkspaceStats) -> None:
         self.info(self.message(f"每日 token 最近 {len(stats.daily)} 天:", f"daily tokens last {len(stats.daily)} days:"))
-        peak = max((entry.tokens for entry in stats.daily), default=0)
+        peak = max((entry.total_tokens for entry in stats.daily), default=0)
         for entry in stats.daily:
-            self.info(f"  {entry.day.isoformat()}  {entry.tokens:>14,}  {self.bar(entry.tokens, peak)} ({entry.sessions})")
+            self.info(f"  {entry.day.isoformat()}  {entry.total_tokens:>14,}  {self.bar(entry.total_tokens, peak)} ({entry.sessions})")
 
     def render_recent_sessions(self, stats: WorkspaceStats) -> None:
         self.info(self.message("最近会话:", "recent sessions:"))
@@ -455,13 +558,121 @@ class WorkspaceManager:
             title = " ".join(session.title.split())
             if len(title) > 36:
                 title = title[:33] + "..."
-            self.info(f"  {timestamp:<11} {title:<36} {session.tokens:>10,}  {session.model[:18]}")
+            self.info(f"  {timestamp:<11} {title:<36} {session.total_tokens:>10,}  {session.model[:18]}")
+
+    def render_stats_table(self, bundle: StatsBundle, view: str, *, no_color: bool) -> None:
+        self.info(self.bold("Stats Summary"))
+        self.info(f"period: {bundle.period_from.isoformat()} -> {bundle.period_to.isoformat()}")
+        self.info("note: this only reads local Codex SQLite; unknown values are best-effort local inference.")
+        self.info(f"total input tokens: {bundle.input_tokens:,}")
+        self.info(f"total output tokens: {bundle.output_tokens:,}")
+        self.info(f"total tokens: {bundle.total_tokens:,}")
+        self.info(f"sessions: {bundle.total_sessions:,}")
+        self.info(f"workspaces: {len(bundle.workspaces):,}")
+        self.info(f"models: {len(bundle.models):,}")
+        if view == "summary":
+            if self.should_render_trend(no_color):
+                self.info()
+                self.render_trend(bundle.daily)
+            self.info()
+            self.render_usage_rows("Top Models", "MODEL", bundle.models, bundle.total_tokens)
+            return
+        if view == "daily":
+            self.render_daily_table(bundle.daily)
+        elif view == "models":
+            self.render_usage_rows("Top Models", "MODEL", bundle.models, bundle.total_tokens)
+        elif view == "workspaces":
+            self.render_usage_rows("Workspace Usage", "WORKSPACE", bundle.workspace_rows, bundle.total_tokens)
+        elif view == "accounts":
+            self.render_usage_rows("Account Usage", "ACCOUNT", bundle.account_rows, bundle.total_tokens)
+        else:
+            self.fail(f"未知 stats 视图: {view}", f"Unknown stats view: {view}")
+
+    def render_daily_table(self, daily: Sequence) -> None:
+        self.info("Daily Usage:")
+        self.info("  DATE             INPUT        OUTPUT         TOTAL  SESSIONS")
+        for entry in daily:
+            self.info(f"  {entry.day.isoformat()} {entry.input_tokens:>12,} {entry.output_tokens:>13,} {entry.total_tokens:>13,} {entry.sessions:>9,}")
+
+    def render_usage_rows(self, title: str, label: str, rows: Sequence[ModelUsage], total: int) -> None:
+        self.info(f"{title}:")
+        self.info(f"  {label:<20} {'INPUT':>12} {'OUTPUT':>12} {'TOTAL':>12} {'SHARE':>8}")
+        for row in rows:
+            share = (row.total_tokens / total * 100) if total else 0
+            self.info(f"  {row.model:<20} {row.input_tokens:>12,} {row.output_tokens:>12,} {row.total_tokens:>12,} {share:>7.1f}%")
+
+    def render_trend(self, daily: Sequence) -> None:
+        self.info("Token Trend:")
+        peak = max((entry.total_tokens for entry in daily), default=0)
+        for entry in daily:
+            self.info(f"  {entry.day.isoformat()}  {self.bar(entry.total_tokens, peak, width=16):<16}  {self.compact_number(entry.total_tokens)}")
+
+    def should_render_trend(self, no_color: bool) -> bool:
+        if no_color:
+            return False
+        return bool(getattr(self.stdout, "isatty", lambda: False)())
+
+    def render_stats_markdown(self, bundle: StatsBundle, view: str) -> None:
+        if view == "daily":
+            self.info("| Date | Input | Output | Total | Sessions |")
+            self.info("|---|---:|---:|---:|---:|")
+            for entry in bundle.daily:
+                self.info(f"| {entry.day.isoformat()} | {entry.input_tokens:,} | {entry.output_tokens:,} | {entry.total_tokens:,} | {entry.sessions:,} |")
+            return
+        rows = bundle.models if view in {"summary", "models"} else bundle.workspace_rows if view == "workspaces" else bundle.account_rows
+        label = "Model" if view in {"summary", "models"} else "Workspace" if view == "workspaces" else "Account"
+        self.info(f"| {label} | Input | Output | Total | Share |")
+        self.info("|---|---:|---:|---:|---:|")
+        for row in rows:
+            share = (row.total_tokens / bundle.total_tokens * 100) if bundle.total_tokens else 0
+            self.info(f"| {row.model} | {row.input_tokens:,} | {row.output_tokens:,} | {row.total_tokens:,} | {share:.1f}% |")
+
+    def stats_bundle_to_dict(self, bundle: StatsBundle) -> dict:
+        return {
+            "period": {"from": bundle.period_from.isoformat(), "to": bundle.period_to.isoformat()},
+            "totals": {
+                "input_tokens": bundle.input_tokens,
+                "output_tokens": bundle.output_tokens,
+                "total_tokens": bundle.total_tokens,
+                "sessions": bundle.total_sessions,
+            },
+            "daily": [self.daily_to_dict(entry) for entry in bundle.daily],
+            "models": [self.usage_to_dict(entry, bundle.total_tokens, "model") for entry in bundle.models],
+            "workspaces": [self.usage_to_dict(entry, bundle.total_tokens, "workspace") for entry in bundle.workspace_rows],
+            "accounts": [self.usage_to_dict(entry, bundle.total_tokens, "account") for entry in bundle.account_rows],
+        }
+
+    def daily_to_dict(self, entry) -> dict:
+        return {
+            "date": entry.day.isoformat(),
+            "input_tokens": entry.input_tokens,
+            "output_tokens": entry.output_tokens,
+            "total_tokens": entry.total_tokens,
+            "sessions": entry.sessions,
+        }
+
+    def usage_to_dict(self, entry: ModelUsage, total: int, key: str) -> dict:
+        return {
+            key: entry.model,
+            "input_tokens": entry.input_tokens,
+            "output_tokens": entry.output_tokens,
+            "total_tokens": entry.total_tokens,
+            "sessions": entry.sessions,
+            "share": (entry.total_tokens / total) if total else 0,
+        }
 
     def bar(self, value: int, total: int, width: int = 20) -> str:
         if value <= 0 or total <= 0:
             return ""
         count = max(1, int(value / total * width))
         return "#" * min(width, count)
+
+    def compact_number(self, value: int) -> str:
+        if value >= 1_000_000:
+            return f"{value / 1_000_000:.1f}m"
+        if value >= 1_000:
+            return f"{value / 1_000:.0f}k"
+        return str(value)
 
     def _yes_no(self, value: bool) -> str:
         return self.message("是" if value else "否", "yes" if value else "no")
@@ -1122,6 +1333,7 @@ class WorkspaceManager:
         if not accounts:
             self.info(self.message("未找到账号。", "No accounts found."))
             return
+        accounts = [self.refresh_account_for_display(account.id) for account in accounts]
         self.info("CURRENT  DEFAULT  AUTH  STATUS       ACCOUNT          SOURCE              DEFAULT_IN        ACTIVE_IN         NOTE                     LAST_USED")
         for account in accounts:
             current_mark = "*" if account.id == current_account else ""
@@ -1147,7 +1359,7 @@ class WorkspaceManager:
         account_id = self.account_id_from_input(account)
         if not self.store.account_meta_path(account_id).is_file():
             self.fail(f"账号不存在: {account_id}", f"Account not found: {account_id}\nHint: run `codex-workspaces accounts list`")
-        meta = self.store.read_account_meta(account_id)
+        meta = self.refresh_account_for_display(account_id)
         current_account = None
         default_account = None
         current_workspace = None
@@ -1184,6 +1396,11 @@ class WorkspaceManager:
 
     def format_refs(self, refs: Sequence[str]) -> str:
         return ", ".join(refs) if refs else "-"
+
+    def refresh_account_for_display(self, account_id: str) -> AccountMeta:
+        if self.store.account_auth_path(account_id).is_file():
+            return self.store.refresh_account_meta(account_id, overwrite=False)
+        return self.store.read_account_meta(account_id)
 
     def accounts_init(self, account: str) -> None:
         self.store.ensure_layout()
@@ -1632,6 +1849,323 @@ class WorkspaceManager:
         self.store.write_account_meta(meta)
         self.info(self.message(f"已更新账号备注: {account_id}", f"Updated account note: {account_id}"))
 
+    def accounts_refresh_meta(self, args: Sequence[str]) -> None:
+        self.store.ensure_layout()
+        overwrite = False
+        refresh_all = False
+        account: Optional[str] = None
+        for arg in args:
+            if arg == "--all":
+                refresh_all = True
+            elif arg == "--overwrite":
+                overwrite = True
+            elif arg.startswith("-"):
+                self.fail(f"未知参数: {arg}", f"Unknown option: {arg}")
+            elif account is None:
+                account = arg
+            else:
+                self.fail(f"未知参数: {arg}", f"Unknown option: {arg}")
+        if refresh_all == bool(account):
+            self.fail(
+                "用法: codex-workspaces accounts refresh-meta <账号>|--all [--overwrite]",
+                "Usage: codex-workspaces accounts refresh-meta <account>|--all [--overwrite]",
+            )
+
+        account_ids = [item.id for item in self.store.list_accounts()] if refresh_all else [self.account_id_from_input(account or "")]
+        updated = 0
+        for account_id in account_ids:
+            if not self.store.account_meta_path(account_id).is_file():
+                self.fail(f"账号不存在: {account_id}", f"Account not found: {account_id}")
+            before = self.store.read_account_meta(account_id).to_dict()
+            self.store.refresh_account_meta(account_id, overwrite=overwrite)
+            after = self.store.read_account_meta(account_id).to_dict()
+            if before != after:
+                updated += 1
+        self.info(self.message(f"已刷新账号元信息: {updated}", f"Refreshed account metadata: {updated}"))
+
+    def accounts_export(self, output_file: str, args: Sequence[str]) -> None:
+        self.store.ensure_layout()
+        include_auth = False
+        without_auth = False
+        yes = False
+        all_accounts = False
+        selected_accounts: list[str] = []
+        index = 0
+        while index < len(args):
+            arg = args[index]
+            if arg == "--include-auth":
+                include_auth = True
+            elif arg == "--without-auth":
+                without_auth = True
+            elif arg == "--yes":
+                yes = True
+            elif arg == "--all":
+                all_accounts = True
+            elif arg == "--account":
+                index += 1
+                if index >= len(args):
+                    self.fail("缺少 --account 数值", "Missing value for --account")
+                selected_accounts.append(self.account_id_from_input(args[index]))
+            elif arg.startswith("--account="):
+                selected_accounts.append(self.account_id_from_input(arg.split("=", 1)[1]))
+            else:
+                self.fail(f"未知参数: {arg}", f"Unknown option: {arg}")
+            index += 1
+
+        if include_auth and without_auth:
+            self.fail("不能同时使用 --include-auth 和 --without-auth。", "Cannot combine --include-auth and --without-auth.")
+        accounts = self.store.list_accounts()
+        if selected_accounts:
+            selected = set(selected_accounts)
+            accounts = [account for account in accounts if account.id in selected]
+            missing = sorted(selected - {account.id for account in accounts})
+            if missing:
+                self.fail(f"账号不存在: {', '.join(missing)}", f"Account not found: {', '.join(missing)}")
+        elif not all_accounts:
+            all_accounts = True
+        if include_auth:
+            self.confirm_export_auth(yes)
+        else:
+            self.info(self.message("未指定 --include-auth；本次只导出账号 meta，不包含 auth.json。", "No --include-auth set; exporting account metadata only, without auth.json."))
+
+        output = Path(os.path.expandvars(os.path.expanduser(output_file)))
+        output.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="codex-workspaces-export.") as raw_tmp:
+            tmp = Path(raw_tmp)
+            root = tmp / "codex-workspaces-accounts-backup"
+            accounts_root = root / "accounts"
+            accounts_root.mkdir(parents=True)
+            manifest_accounts = []
+            for account in accounts:
+                account = self.refresh_account_for_display(account.id)
+                source_dir = self.store.account_dir(account.id)
+                target_dir = accounts_root / account.id
+                target_dir.mkdir()
+                shutil.copy2(source_dir / "meta.json", target_dir / "meta.json")
+                chmod_best_effort(target_dir / "meta.json", 0o600)
+                auth_path = source_dir / "auth.json"
+                if include_auth and auth_path.is_file():
+                    shutil.copy2(auth_path, target_dir / "auth.json")
+                    chmod_best_effort(target_dir / "auth.json", 0o600)
+                manifest_accounts.append(
+                    {
+                        "id": account.id,
+                        "name": account.name,
+                        "source": account.source,
+                        "auth_hash": account.auth_hash,
+                    }
+                )
+            write_json_atomic(
+                root / "manifest.json",
+                {
+                    "schema_version": 1,
+                    "kind": "codex-workspaces.accounts.backup",
+                    "created_at": iso_now(),
+                    "tool_version": self.tool_version(),
+                    "include_auth": include_auth,
+                    "accounts": manifest_accounts,
+                },
+            )
+            with tarfile.open(output, "w:gz") as archive:
+                archive.add(root, arcname="codex-workspaces-accounts-backup")
+        chmod_best_effort(output, 0o600)
+        self.info(self.message(f"已导出账号备份: {output}", f"Exported account backup: {output}"))
+        self.info(self.message(f"账号数量: {len(accounts)}", f"accounts: {len(accounts)}"))
+
+    def confirm_export_auth(self, yes: bool) -> None:
+        warning = (
+            "WARNING: This backup contains Codex account credentials from auth.json.\n"
+            "Anyone with this file may be able to access your Codex account session.\n"
+            "Store it securely and do not commit it to git."
+        )
+        self.info(warning)
+        if yes:
+            return
+        self.info('Type "EXPORT AUTH" to continue:')
+        response = self.stdin.readline().strip()
+        if response != "EXPORT AUTH":
+            self.fail("已取消导出。", "Export cancelled.")
+
+    def accounts_import_backup(self, backup_file: str, args: Sequence[str]) -> None:
+        self.store.ensure_layout()
+        dry_run = False
+        rename_conflicts = False
+        overwrite = False
+        for arg in args:
+            if arg == "--dry-run":
+                dry_run = True
+            elif arg == "--rename-conflicts":
+                rename_conflicts = True
+            elif arg == "--overwrite":
+                overwrite = True
+            else:
+                self.fail(f"未知参数: {arg}", f"Unknown option: {arg}")
+        if rename_conflicts and overwrite:
+            self.fail("不能同时使用 --rename-conflicts 和 --overwrite。", "Cannot combine --rename-conflicts and --overwrite.")
+
+        backup = Path(os.path.expandvars(os.path.expanduser(backup_file)))
+        with tempfile.TemporaryDirectory(prefix="codex-workspaces-import.") as raw_tmp:
+            tmp = Path(raw_tmp)
+            root = self.extract_account_backup(backup, tmp)
+            manifest = self.read_backup_manifest(root)
+            account_dirs = self.backup_account_dirs(root, manifest)
+            plan = self.plan_account_import(account_dirs, rename_conflicts=rename_conflicts, overwrite=overwrite)
+            self.render_account_import_plan(plan)
+            if dry_run:
+                return
+            with self.store.lock():
+                if plan.will_overwrite:
+                    self.backup_existing_accounts(plan.will_overwrite)
+                for source_id, target_id in self.import_targets(account_dirs, plan):
+                    self.import_account_dir(account_dirs[source_id], source_id, target_id, overwrite=target_id in plan.will_overwrite)
+        self.info(self.message("账号备份导入完成。", "Account backup import complete."))
+
+    def extract_account_backup(self, backup: Path, destination: Path) -> Path:
+        try:
+            with tarfile.open(backup, "r:gz") as archive:
+                for member in archive.getmembers():
+                    self.validate_tar_member(member)
+                    target = destination / member.name
+                    resolved = target.resolve(strict=False)
+                    if not str(resolved).startswith(str(destination.resolve()) + os.sep):
+                        self.fail(f"备份包路径不安全: {member.name}", f"Unsafe backup path: {member.name}")
+                    if member.isdir():
+                        target.mkdir(parents=True, exist_ok=True)
+                    elif member.isfile():
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        source = archive.extractfile(member)
+                        if source is None:
+                            self.fail(f"无法读取备份条目: {member.name}", f"Could not read backup entry: {member.name}")
+                        with source, target.open("wb") as handle:
+                            shutil.copyfileobj(source, handle)
+                    else:
+                        self.fail(f"备份包包含不支持的条目: {member.name}", f"Backup contains unsupported entry: {member.name}")
+        except (tarfile.TarError, OSError) as exc:
+            self.fail(f"无法读取账号备份: {exc}", f"Could not read account backup: {exc}")
+        root = destination / "codex-workspaces-accounts-backup"
+        if not root.is_dir():
+            self.fail("备份包缺少根目录。", "Backup is missing the root directory.")
+        return root
+
+    def validate_tar_member(self, member: tarfile.TarInfo) -> None:
+        name = member.name
+        path = Path(name)
+        if path.is_absolute() or ".." in path.parts:
+            self.fail(f"备份包路径不安全: {name}", f"Unsafe backup path: {name}")
+        if member.issym() or member.islnk() or member.isdev():
+            self.fail(f"备份包包含不支持的条目: {name}", f"Backup contains unsupported entry: {name}")
+
+    def read_backup_manifest(self, root: Path) -> dict:
+        try:
+            manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            self.fail(f"备份 manifest 无效: {exc}", f"Invalid backup manifest: {exc}")
+        if manifest.get("kind") != "codex-workspaces.accounts.backup":
+            self.fail("备份 kind 不匹配。", "Backup kind does not match.")
+        if manifest.get("schema_version") != 1:
+            self.fail("不支持的备份 schema_version。", "Unsupported backup schema_version.")
+        return manifest
+
+    def backup_account_dirs(self, root: Path, manifest: dict) -> dict[str, Path]:
+        accounts: dict[str, Path] = {}
+        for item in manifest.get("accounts") or []:
+            account_id = self.account_id_from_input(str(item.get("id") or ""))
+            account_dir = root / "accounts" / account_id
+            meta_path = account_dir / "meta.json"
+            if not meta_path.is_file():
+                self.fail(f"备份账号缺少 meta.json: {account_id}", f"Backup account is missing meta.json: {account_id}")
+            auth_path = account_dir / "auth.json"
+            expected_hash = item.get("auth_hash")
+            if auth_path.is_file() and expected_hash and auth_hash(auth_path) != expected_hash:
+                self.fail(f"备份账号 auth_hash 不匹配: {account_id}", f"Backup auth_hash mismatch: {account_id}")
+            accounts[account_id] = account_dir
+        return accounts
+
+    def plan_account_import(self, account_dirs: dict[str, Path], *, rename_conflicts: bool, overwrite: bool) -> AccountImportPlan:
+        will_import: list[str] = []
+        will_skip: list[str] = []
+        will_rename: list[tuple[str, str]] = []
+        will_overwrite: list[str] = []
+        used = {account.id for account in self.store.list_accounts()}
+        for account_id in sorted(account_dirs):
+            if account_id not in used:
+                will_import.append(account_id)
+            elif overwrite:
+                will_overwrite.append(account_id)
+            elif rename_conflicts:
+                target = self.import_rename_id(account_id, used)
+                used.add(target)
+                will_rename.append((account_id, target))
+            else:
+                will_skip.append(account_id)
+        return AccountImportPlan(will_import, will_skip, will_rename, will_overwrite)
+
+    def import_rename_id(self, account_id: str, used: set[str]) -> str:
+        base = account_id + "_imported_" + hashlib.sha1(account_id.encode("utf-8")).hexdigest()[:6]
+        candidate = base
+        index = 2
+        while candidate in used or self.store.account_dir(candidate).exists():
+            candidate = f"{base}_{index}"
+            index += 1
+        validate_workspace_name(candidate)
+        return candidate
+
+    def render_account_import_plan(self, plan: AccountImportPlan) -> None:
+        self.info("Import Plan:")
+        self.info("  will import:")
+        for account_id in plan.will_import:
+            self.info(f"    - {account_id}")
+        if not plan.will_import:
+            self.info("    -")
+        self.info("  will skip existing:")
+        for account_id in plan.will_skip:
+            self.info(f"    - {account_id}")
+        if not plan.will_skip:
+            self.info("    -")
+        self.info("  will rename conflicts:")
+        for source_id, target_id in plan.will_rename:
+            self.info(f"    - {source_id} -> {target_id}")
+        if not plan.will_rename:
+            self.info("    -")
+        self.info("  will overwrite:")
+        for account_id in plan.will_overwrite:
+            self.info(f"    - {account_id}")
+        if not plan.will_overwrite:
+            self.info("    -")
+
+    def import_targets(self, account_dirs: dict[str, Path], plan: AccountImportPlan) -> list[tuple[str, str]]:
+        targets = [(account_id, account_id) for account_id in plan.will_import]
+        targets.extend((account_id, account_id) for account_id in plan.will_overwrite)
+        targets.extend(plan.will_rename)
+        return targets
+
+    def backup_existing_accounts(self, account_ids: Sequence[str]) -> None:
+        backup_dir = self.config.backups_dir / datetime.now().strftime("%Y%m%d-%H%M%S") / "before-account-import"
+        for account_id in account_ids:
+            source = self.store.account_dir(account_id)
+            if source.is_dir():
+                self.copy_supported_tree(source, backup_dir / account_id, context="account-import")
+
+    def import_account_dir(self, source_dir: Path, source_id: str, target_id: str, *, overwrite: bool) -> None:
+        target_dir = self.store.account_dir(target_id)
+        if overwrite and target_dir.exists():
+            shutil.rmtree(target_dir)
+        elif target_dir.exists():
+            return
+        target_dir.mkdir(parents=True, exist_ok=False)
+        chmod_best_effort(target_dir, 0o700)
+        meta_data = json.loads((source_dir / "meta.json").read_text(encoding="utf-8"))
+        meta = AccountMeta.from_dict(meta_data, source_id)
+        meta.id = target_id
+        if target_id != source_id:
+            meta.name = target_id.removeprefix("acct_")
+        meta.updated_at = iso_now()
+        auth_path = source_dir / "auth.json"
+        if auth_path.is_file():
+            copy_auth(auth_path, target_dir / "auth.json")
+            self.store.apply_auth_inspection(meta, target_dir / "auth.json", overwrite=False)
+        write_json_atomic(target_dir / "meta.json", meta.to_dict(), mode=0o600)
+
     def accounts_import_workspaces(self) -> None:
         self.store.ensure_layout()
         imported: list[str] = []
@@ -1771,6 +2305,13 @@ class WorkspaceManager:
                 return directory
         return None
 
+    def tool_version(self) -> str:
+        try:
+            from . import __version__
+        except Exception:
+            return "unknown"
+        return __version__
+
 
 def usage(lang: str) -> str:
     if lang == "zh":
@@ -1795,7 +2336,9 @@ def usage(lang: str) -> str:
   codex-workspaces doctor
       输出路径、平台、App 控制、当前工作区和账号状态诊断。
 
-  codex-workspaces stats [工作区名] [--days 天数]
+  codex-workspaces stats [summary|daily|models|workspaces|accounts] [工作区名]
+      [--days 天数] [--from YYYY-MM-DD] [--to YYYY-MM-DD]
+      [--workspace 工作区] [--account 账号] [--format table|json|markdown] [--no-color]
       只读本地 Codex state_*.sqlite，统计 token 用量。
 
   codex-workspaces use <工作区名> [--no-stop] [--no-start] [--force]
@@ -1826,6 +2369,9 @@ def usage(lang: str) -> str:
   codex-workspaces accounts info <账号>
   codex-workspaces accounts init <账号>
   codex-workspaces accounts save <账号>
+  codex-workspaces accounts refresh-meta <账号>|--all [--overwrite]
+  codex-workspaces accounts export <备份文件> [--all|--account <账号>] [--include-auth] [--yes]
+  codex-workspaces accounts import <备份文件> [--dry-run] [--rename-conflicts|--overwrite]
   codex-workspaces accounts add <账号> --login [--timeout 秒] [--keep-temp]
   codex-workspaces accounts login-temp <账号>
   codex-workspaces accounts use <账号>
@@ -1837,7 +2383,7 @@ def usage(lang: str) -> str:
   codex-workspaces accounts cleanup-login-temp
   codex-workspaces accounts import-workspaces
   codex-workspaces accounts import-legacy <旧账号目录>
-      管理 auth.json 账号快照。accounts add --login 会创建临时登录工作区并在登录完成后保存账号。
+      管理 auth.json 账号快照。auth 元信息解析是本地 best-effort，不访问私有接口。
 
   codex-workspaces rename <旧工作区名> <新工作区名>
       重命名工作区；如果重命名当前工作区，会同步更新当前链接。
@@ -1883,7 +2429,9 @@ Usage:
   codex-workspaces doctor
       Print path, platform, app-control, current workspace, and account diagnostics.
 
-  codex-workspaces stats [workspace] [--days days]
+  codex-workspaces stats [summary|daily|models|workspaces|accounts] [workspace]
+      [--days days] [--from YYYY-MM-DD] [--to YYYY-MM-DD]
+      [--workspace workspace] [--account account] [--format table|json|markdown] [--no-color]
       Read local Codex state_*.sqlite in read-only mode and summarize token usage.
 
   codex-workspaces use <workspace> [--no-stop] [--no-start] [--force]
@@ -1914,6 +2462,9 @@ Usage:
   codex-workspaces accounts info <account>
   codex-workspaces accounts init <account>
   codex-workspaces accounts save <account>
+  codex-workspaces accounts refresh-meta <account>|--all [--overwrite]
+  codex-workspaces accounts export <backup-file> [--all|--account <account>] [--include-auth] [--yes]
+  codex-workspaces accounts import <backup-file> [--dry-run] [--rename-conflicts|--overwrite]
   codex-workspaces accounts add <account> --login [--timeout seconds] [--keep-temp]
   codex-workspaces accounts login-temp <account>
   codex-workspaces accounts use <account>
@@ -1925,7 +2476,7 @@ Usage:
   codex-workspaces accounts cleanup-login-temp
   codex-workspaces accounts import-workspaces
   codex-workspaces accounts import-legacy <legacy-accounts-dir>
-      Manage auth.json account snapshots. accounts add --login creates a temporary login workspace and saves the account after login.
+      Manage auth.json account snapshots. Auth metadata parsing is local best-effort and never calls private APIs.
 
   codex-workspaces rename <old-workspace> <new-workspace>
       Rename a workspace. If it is active, the active link is updated.

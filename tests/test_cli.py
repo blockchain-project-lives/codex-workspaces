@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 from pathlib import Path
 
 import pytest
@@ -14,7 +15,7 @@ from test_core import FakePlatform
 
 def manager_for(tmp_path: Path) -> WorkspaceManager:
     home = tmp_path / "home"
-    home.mkdir()
+    home.mkdir(parents=True)
     root = home / ".codex-workspaces"
     workspaces = root / "workspaces"
     accounts = root / "accounts"
@@ -88,6 +89,21 @@ class TestCliDispatch:
         assert "Codex workspace stats: work" in output
         assert "daily tokens last 3 days:" in output
 
+    def test_stats_dispatches_new_views_and_json_format(self, tmp_path: Path) -> None:
+        from test_core import seed_detailed_state_db
+
+        manager = manager_for(tmp_path)
+        run(["init", "work"], manager)
+        seed_detailed_state_db(manager.workspace_dir("work") / "state_5.sqlite")
+        manager.stdout.seek(0)
+        manager.stdout.truncate(0)
+
+        assert run(["stats", "models", "--workspace", "work", "--days", "30", "--format", "json"], manager) == 0
+
+        data = json.loads(manager.stdout.getvalue())
+        assert data["totals"]["total_tokens"] > 0
+        assert data["models"]
+
     def test_rename_delete_and_note_dispatch(self, tmp_path: Path) -> None:
         manager = manager_for(tmp_path)
 
@@ -118,6 +134,25 @@ class TestCliDispatch:
         assert "acct_work" in output
         assert "active=acct_work default=acct_work" in output
         assert "auth_exists: yes" in output
+
+    def test_accounts_refresh_export_and_import_dispatch(self, tmp_path: Path) -> None:
+        manager = manager_for(tmp_path)
+
+        assert run(["accounts", "init", "work"], manager) == 0
+        auth_path = manager.store.account_dir("acct_work") / "auth.json"
+        auth_path.write_text('{"email":"work@example.com"}\n', encoding="utf-8")
+        manager.store.save_auth_to_account("acct_work", auth_path)
+        backup = tmp_path / "accounts.tar.gz"
+        assert run(["accounts", "refresh-meta", "work"], manager) == 0
+        assert run(["accounts", "export", str(backup), "--include-auth", "--yes", "--all"], manager) == 0
+
+        imported = manager_for(tmp_path / "imported")
+        assert run(["accounts", "import", str(backup), "--dry-run"], imported) == 0
+
+        output = manager.stdout.getvalue() + imported.stdout.getvalue()
+        assert "Refreshed account metadata" in output
+        assert "Exported account backup" in output
+        assert "Import Plan:" in output
 
     def test_account_lifecycle_dispatches(self, tmp_path: Path) -> None:
         manager = manager_for(tmp_path)

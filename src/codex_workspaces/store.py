@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator, Optional
 
+from .auth_inspector import inspect_auth_file
 from .config import Config
 from .errors import CodexWorkspacesError
 
@@ -66,6 +67,8 @@ class AccountMeta:
     email: Optional[str]
     plan: Optional[str]
     account_id: Optional[str]
+    user_id: Optional[str]
+    organization_id: Optional[str]
     auth_hash: Optional[str]
     created_at: str
     updated_at: str
@@ -82,6 +85,8 @@ class AccountMeta:
             "email": self.email,
             "plan": self.plan,
             "account_id": self.account_id,
+            "user_id": self.user_id,
+            "organization_id": self.organization_id,
             "auth_hash": self.auth_hash,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
@@ -100,6 +105,8 @@ class AccountMeta:
             email=data.get("email"),
             plan=data.get("plan"),
             account_id=data.get("account_id"),
+            user_id=data.get("user_id"),
+            organization_id=data.get("organization_id"),
             auth_hash=data.get("auth_hash"),
             created_at=str(data.get("created_at") or now),
             updated_at=str(data.get("updated_at") or now),
@@ -248,6 +255,9 @@ class WorkspaceStore:
         auth_hash = None
         if auth_source is not None:
             auth_hash = copy_auth(auth_source, self.account_auth_path(account_id))
+            inspection = inspect_auth_file(self.account_auth_path(account_id))
+            if inspection.auth_hash:
+                auth_hash = inspection.auth_hash
         now = iso_now()
         meta = AccountMeta(
             id=account_id,
@@ -257,16 +267,20 @@ class WorkspaceStore:
             email=None,
             plan=None,
             account_id=None,
+            user_id=None,
+            organization_id=None,
             auth_hash=auth_hash,
             created_at=now,
             updated_at=now,
             last_used_at=None,
             notes=notes,
         )
+        if auth_source is not None:
+            self.apply_auth_inspection(meta, self.account_auth_path(account_id), overwrite=False)
         self.write_account_meta(meta)
         return meta
 
-    def save_auth_to_account(self, account_id: str, source: Path) -> None:
+    def save_auth_to_account(self, account_id: str, source: Path, *, refresh_meta: bool = False) -> None:
         if not source.is_file():
             raise CodexWorkspacesError(
                 f"current workspace auth.json not found: {source}\n"
@@ -279,8 +293,27 @@ class WorkspaceStore:
         auth_hash = copy_auth(source, self.account_auth_path(account_id))
         meta = self.read_account_meta(account_id)
         meta.auth_hash = auth_hash
+        self.apply_auth_inspection(meta, self.account_auth_path(account_id), overwrite=refresh_meta)
         meta.updated_at = iso_now()
         self.write_account_meta(meta)
+
+    def refresh_account_meta(self, account_id: str, *, overwrite: bool = False) -> AccountMeta:
+        meta = self.read_account_meta(account_id)
+        auth_path = self.account_auth_path(account_id)
+        if auth_path.is_file():
+            self.apply_auth_inspection(meta, auth_path, overwrite=overwrite)
+            meta.updated_at = iso_now()
+            self.write_account_meta(meta)
+        return meta
+
+    def apply_auth_inspection(self, meta: AccountMeta, auth_path: Path, *, overwrite: bool) -> None:
+        inspection = inspect_auth_file(auth_path)
+        if inspection.auth_hash and (overwrite or not meta.auth_hash):
+            meta.auth_hash = inspection.auth_hash
+        for field_name in ("email", "account_id", "user_id", "organization_id", "plan"):
+            value = getattr(inspection, field_name)
+            if value and (overwrite or not getattr(meta, field_name)):
+                setattr(meta, field_name, value)
 
     def touch_account_used(self, account_id: str) -> None:
         meta = self.read_account_meta(account_id)

@@ -7,9 +7,9 @@
 - 文件系统行为：初始化统一目录工作区、切换链接、拒绝覆盖真实目录。
 - CLI 行为：命令别名、工作区名快捷切换、错误路径、帮助输出。
 - 管理行为：诊断、列表元信息、工作区详情、重命名、删除保护、备注读写和账号绑定。
-- 账号行为：账号快照保存、列表/详情增强、备注、重命名、删除保护、临时切换、login-temp 新增账号、默认账号恢复、默认账号设置。
+- 账号行为：账号快照保存、auth 元信息 best-effort 解析、列表/详情增强、备份导出导入、备注、重命名、删除保护、临时切换、login-temp 新增账号、默认账号恢复、默认账号设置。
 - 迁移行为：旧 `~/.codex-<name>` 工作区迁移、旧 `~/.codex-accounts` 导入、dry-run 不落盘、迁移前备份。
-- 统计行为：只读 `state_*.sqlite`，汇总 token、模型、最近会话和每日用量。
+- 统计行为：只读 `state_*.sqlite`，汇总 input/output/total token、模型、最近会话、每日、workspace、account，并覆盖 JSON/Markdown 输出。
 - 平台行为：macOS App 控制可注入，非 macOS 自动跳过 App 启停，Codex 内置 Terminal 阻止或转交危险操作。
 
 ## 测试结构
@@ -79,6 +79,11 @@ codex-workspaces doctor
 # CODEX_WORKSPACES_LINK="$tmp_home/.codex" \
 # CODEX_WORKSPACES_ROOT="$tmp_home/.codex-workspaces" \
 # codex-workspaces stats personal --days 14
+# codex-workspaces stats summary --days 30
+# codex-workspaces stats daily --format markdown
+# codex-workspaces stats models --format json
+# codex-workspaces stats workspaces
+# codex-workspaces stats accounts
 
 printf '{"account":"personal"}\n' > "$tmp_home/.codex-workspaces/workspaces/personal/auth.json"
 
@@ -97,6 +102,23 @@ codex-workspaces accounts list
 CODEX_WORKSPACES_LINK="$tmp_home/.codex" \
 CODEX_WORKSPACES_ROOT="$tmp_home/.codex-workspaces" \
 codex-workspaces accounts info personal
+
+CODEX_WORKSPACES_LINK="$tmp_home/.codex" \
+CODEX_WORKSPACES_ROOT="$tmp_home/.codex-workspaces" \
+codex-workspaces accounts refresh-meta personal
+
+CODEX_WORKSPACES_LINK="$tmp_home/.codex" \
+CODEX_WORKSPACES_ROOT="$tmp_home/.codex-workspaces" \
+codex-workspaces accounts export "$tmp_home/accounts-meta.tar.gz" --all
+
+# 包含 auth.json 的备份包含凭据，必须安全保存，不能提交到 git。
+CODEX_WORKSPACES_LINK="$tmp_home/.codex" \
+CODEX_WORKSPACES_ROOT="$tmp_home/.codex-workspaces" \
+codex-workspaces accounts export "$tmp_home/accounts-with-auth.tar.gz" --all --include-auth --yes
+
+CODEX_WORKSPACES_LINK="$tmp_home/.codex" \
+CODEX_WORKSPACES_ROOT="$tmp_home/.codex-workspaces" \
+codex-workspaces accounts import "$tmp_home/accounts-with-auth.tar.gz" --dry-run
 
 # 新账号登录流程会切到临时 login-research 工作区，登录完成后恢复原工作区。
 # CODEX_WORKSPACES_LINK="$tmp_home/.codex" \

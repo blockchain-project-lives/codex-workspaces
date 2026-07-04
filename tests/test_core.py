@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import os
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -467,6 +468,23 @@ class TestWorkspaceManager:
         assert manager.store.account_auth_path("acct_work").read_text(encoding="utf-8") == '{"account":"work"}\n'
         assert any(manager.config.backups_dir.glob("*/before-migrate/legacy-workspaces/.codex-work/auth.json"))
         assert "Migrated workspaces: 2" in stdout.getvalue()
+
+    def test_migrate_skips_unsupported_special_files(self, tmp_path: Path) -> None:
+        if not hasattr(os, "mkfifo"):
+            pytest.skip("mkfifo is not available on this platform")
+        manager, stdout, _ = make_manager(tmp_path)
+        legacy_work = manager.config.home_dir / ".codex-work"
+        legacy_work.mkdir()
+        (legacy_work / "auth.json").write_text('{"account":"work"}\n', encoding="utf-8")
+        os.mkfifo(legacy_work / "fsmonitor--daemon.ipc")
+
+        manager.migrate()
+
+        output = stdout.getvalue()
+        assert "Skipping unsupported special file" in output
+        assert manager.workspace_dir("work").is_dir()
+        assert not (manager.workspace_dir("work") / "fsmonitor--daemon.ipc").exists()
+        assert manager.store.account_auth_path("acct_work").is_file()
 
     def test_migrate_renames_conflicting_legacy_account_ids(self, tmp_path: Path) -> None:
         manager, _, _ = make_manager(tmp_path)

@@ -6,6 +6,7 @@ import platform as platform_module
 import re
 import shlex
 import shutil
+import stat
 import sys
 from dataclasses import dataclass
 from datetime import datetime
@@ -543,15 +544,39 @@ class WorkspaceManager:
         return backup_dir
 
     def copy_path_for_backup(self, source: Path, destination: Path) -> None:
+        self.copy_supported_tree(source, destination, context="backup")
+
+    def copy_supported_tree(self, source: Path, destination: Path, *, context: str) -> None:
+        try:
+            source_stat = source.lstat()
+        except OSError as exc:
+            self.info(self.message(f"跳过无法读取的路径: {source} ({exc})", f"Skipping unreadable path: {source} ({exc})"))
+            return
+
+        mode = source_stat.st_mode
         destination.parent.mkdir(parents=True, exist_ok=True)
-        if source.is_symlink():
+        if stat.S_ISLNK(mode):
             destination.symlink_to(os.readlink(source))
             return
-        if source.is_dir():
-            shutil.copytree(source, destination, symlinks=True)
+        if stat.S_ISDIR(mode):
+            destination.mkdir(exist_ok=True)
+            try:
+                shutil.copystat(source, destination, follow_symlinks=False)
+            except OSError:
+                pass
+            for child in sorted(source.iterdir()):
+                self.copy_supported_tree(child, destination / child.name, context=context)
             return
-        if source.exists():
+        if stat.S_ISREG(mode):
             shutil.copy2(source, destination)
+            return
+
+        self.info(
+            self.message(
+                f"跳过不支持复制的特殊文件: {source}",
+                f"Skipping unsupported special file during {context}: {source}",
+            )
+        )
 
     def backup_migration_sources(
         self,
@@ -560,10 +585,13 @@ class WorkspaceManager:
         legacy_accounts_dir: Optional[Path],
     ) -> None:
         if self.config.active_link.exists() or self.config.active_link.is_symlink():
+            self.info(self.message(f"备份当前链接: {self.config.active_link}", f"Backing up active link: {self.config.active_link}"))
             self.copy_path_for_backup(self.config.active_link, backup_dir / "codex")
         for candidate in workspaces:
+            self.info(self.message(f"备份旧工作区: {candidate.source}", f"Backing up legacy workspace: {candidate.source}"))
             self.copy_path_for_backup(candidate.source, backup_dir / "legacy-workspaces" / candidate.source.name)
         if legacy_accounts_dir and legacy_accounts_dir.is_dir():
+            self.info(self.message(f"备份旧账号目录: {legacy_accounts_dir}", f"Backing up legacy accounts: {legacy_accounts_dir}"))
             self.copy_path_for_backup(legacy_accounts_dir, backup_dir / "legacy-accounts" / legacy_accounts_dir.name)
 
     def import_legacy_account_candidate(self, candidate: LegacyAccountCandidate) -> str:
@@ -610,17 +638,20 @@ class WorkspaceManager:
         with self.store.lock():
             self.store.ensure_layout()
             backup_dir = self.migration_backup_dir()
+            self.info(self.message(f"准备迁移，备份目录: {backup_dir}", f"Preparing migration; backup directory: {backup_dir}"))
             self.backup_migration_sources(backup_dir, candidates, legacy_accounts_dir if account_candidates else None)
             active_target = self.current_target().path if self.current_target().kind == "target" else None
             active_migrated: Optional[LegacyWorkspaceCandidate] = None
             for candidate in candidates:
-                shutil.copytree(candidate.source, candidate.target, symlinks=True)
+                self.info(self.message(f"迁移工作区: {candidate.name}", f"Migrating workspace: {candidate.name}"))
+                self.copy_supported_tree(candidate.source, candidate.target, context="migration")
                 try:
                     candidate.target.chmod(0o700)
                 except OSError:
                     pass
                 meta = self.store.ensure_workspace_meta(candidate.name, candidate.target)
                 if candidate.account_id:
+                    self.info(self.message(f"创建默认账号快照: {candidate.account_id}", f"Creating default account snapshot: {candidate.account_id}"))
                     self.store.create_account(
                         candidate.account_id,
                         name=candidate.name,
@@ -638,9 +669,13 @@ class WorkspaceManager:
                 if active_target and self.same_path(active_target, candidate.source):
                     active_migrated = candidate
 
-            imported_accounts = [self.import_legacy_account_candidate(candidate) for candidate in account_candidates]
+            imported_accounts = []
+            for candidate in account_candidates:
+                self.info(self.message(f"导入旧账号: {candidate.target_id}", f"Importing legacy account: {candidate.target_id}"))
+                imported_accounts.append(self.import_legacy_account_candidate(candidate))
             link_target = active_migrated.target if active_migrated else (candidates[0].target if candidates and not self.config.active_link.exists() else None)
             if link_target:
+                self.info(self.message(f"更新当前工作区链接: {self.config.active_link} -> {link_target}", f"Updating active workspace link: {self.config.active_link} -> {link_target}"))
                 if self.platform.is_directory_link(self.config.active_link):
                     self.platform.remove_directory_link(self.config.active_link)
                 self.platform.create_directory_link(link_target, self.config.active_link)

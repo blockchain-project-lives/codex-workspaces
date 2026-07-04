@@ -27,10 +27,10 @@ def manager_for(tmp_path: Path) -> WorkspaceManager:
 
 
 class TestCliDispatch:
-    def test_create_and_workspace_name_alias(self, tmp_path: Path) -> None:
+    def test_init_and_workspace_name_alias(self, tmp_path: Path) -> None:
         manager = manager_for(tmp_path)
 
-        assert run(["create", "work"], manager) == 0
+        assert run(["init", "work"], manager) == 0
         assert run(["work", "--no-stop", "--no-start"], manager) == 0
 
         assert manager.current_target().kind == "target"
@@ -38,7 +38,7 @@ class TestCliDispatch:
     def test_current_returns_named_workspace(self, tmp_path: Path) -> None:
         manager = manager_for(tmp_path)
 
-        run(["create", "work"], manager)
+        run(["init", "work"], manager)
         run(["switch", "work", "--no-stop", "--no-start"], manager)
         assert run(["current"], manager) == 0
 
@@ -67,7 +67,7 @@ class TestCliDispatch:
     def test_rename_delete_and_note_dispatch(self, tmp_path: Path) -> None:
         manager = manager_for(tmp_path)
 
-        assert run(["create", "work"], manager) == 0
+        assert run(["init", "work"], manager) == 0
         assert run(["note", "work", "daily", "driver"], manager) == 0
         assert run(["rename", "work", "main"], manager) == 0
         assert run(["delete", "main", "--force"], manager) == 0

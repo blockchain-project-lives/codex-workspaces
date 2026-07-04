@@ -23,8 +23,8 @@ This project follows a simple changelog format while it is still pre-release.
 - Added current workspace inspection.
 - Added workspace switching through the active `~/.codex` symlink.
 - Added Codex app stop, start, and restart commands.
-- Added workspace creation with `codex-workspaces create <workspace>`.
-- Added first-time migration with `codex-workspaces create <workspace> --migrate-current`.
+- Added workspace initialization with `codex-workspaces init <workspace>`.
+- Added first-time migration with `codex-workspaces init <workspace> --migrate-current`.
 - Added `--migrate` as a short alias for `--migrate-current`.
 - Added self-install support with `codex-workspaces install [directory]`.
 - Added English and Chinese command output, controlled by system language or `CODEX_WORKSPACES_LANG`.

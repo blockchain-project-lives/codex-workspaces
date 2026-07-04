@@ -1,8 +1,9 @@
 name: Publish to PyPI
 
 on:
-  release:
-    types: [published]
+  push:
+    branches:
+      - "release/v*"
   workflow_dispatch:
 
 permissions:
@@ -33,8 +34,7 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install build
 
-      - name: Check release tag matches package version
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Check release ref matches package version
         shell: bash
         run: |
           package_version="$(python - <<'PY'
@@ -43,11 +43,23 @@ jobs:
               print(tomllib.load(f)["project"]["version"])
           PY
           )"
-          tag_version="${GITHUB_REF_NAME#v}"
-          if [ "$package_version" != "$tag_version" ]; then
-            echo "Tag version v${tag_version} does not match pyproject.toml version ${package_version}."
+          ref_version=""
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            ref_version="${GITHUB_REF_NAME#v}"
+          elif [[ "$GITHUB_REF" == refs/heads/release/v* ]]; then
+            ref_version="${GITHUB_REF_NAME#release/v}"
+          fi
+
+          if [ -z "$ref_version" ]; then
+            echo "No release version encoded in ref ${GITHUB_REF}; package version is ${package_version}."
+            exit 0
+          fi
+
+          if [ "$package_version" != "$ref_version" ]; then
+            echo "Release ref version ${ref_version} does not match pyproject.toml version ${package_version}."
             exit 1
           fi
+          echo "Release ref version matches package version: ${package_version}"
 
       - name: Build distributions
         run: python -m build

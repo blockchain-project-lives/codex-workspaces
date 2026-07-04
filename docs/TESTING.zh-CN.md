@@ -4,7 +4,7 @@
 
 测试覆盖三类风险：
 
-- 文件系统行为：创建工作区、迁移工作区、切换链接、拒绝覆盖真实目录。
+- 文件系统行为：初始化工作区、迁移工作区、切换链接、拒绝覆盖真实目录。
 - CLI 行为：命令别名、工作区名快捷切换、错误路径、帮助输出。
 - 管理行为：诊断、列表元信息、重命名、删除保护和备注读写。
 - 平台行为：macOS App 控制可注入，非 macOS 自动跳过 App 启停，Codex 内置 Terminal 阻止或转交危险操作。
@@ -54,7 +54,7 @@ python -m twine check dist/*
 tmp_home="$(mktemp -d)"
 CODEX_WORKSPACES_LINK="$tmp_home/.codex" \
 CODEX_WORKSPACES_PREFIX="$tmp_home/.codex-" \
-codex-workspaces create personal
+codex-workspaces init personal
 
 CODEX_WORKSPACES_LINK="$tmp_home/.codex" \
 CODEX_WORKSPACES_PREFIX="$tmp_home/.codex-" \
@@ -78,7 +78,7 @@ codex-workspaces rename personal main
 
 CODEX_WORKSPACES_LINK="$tmp_home/.codex" \
 CODEX_WORKSPACES_PREFIX="$tmp_home/.codex-" \
-codex-workspaces create scratch
+codex-workspaces init scratch
 
 CODEX_WORKSPACES_LINK="$tmp_home/.codex" \
 CODEX_WORKSPACES_PREFIX="$tmp_home/.codex-" \

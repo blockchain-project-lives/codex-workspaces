@@ -67,8 +67,8 @@ testpypi
 
 建议配置：
 
-- `pypi`：启用 Required reviewers，最好再限制只允许 tag 或 main/release 分支部署。
-- `testpypi`：可以不设 reviewer，方便手动试发；也可以限制 main 分支。
+- `pypi`：启用 Required reviewers，并限制只允许 `release/v*` 分支部署。
+- `testpypi`：可以不设 reviewer，方便试发；如果要限制部署来源，建议允许 `v*` tag。
 - 两个 Environment 都不需要配置 secrets。
 
 工作流权限：
@@ -88,17 +88,17 @@ permissions:
 1. 更新版本号和 `CHANGELOG.md`。
 2. 本地执行测试和构建检查。
 3. 合并到 `main`。
-4. 手动运行 `Publish to TestPyPI`，确认 TestPyPI 上传和安装正常。
-5. 创建 Git tag，例如 `v0.2.0`。
-6. 在 GitHub 创建 Release。
-7. Release 发布后，`Publish to PyPI` workflow 自动构建并发布。
+4. 创建 Git tag，例如 `v0.2.0`，触发 `Publish to TestPyPI`。
+5. 确认 TestPyPI 上传和安装正常。
+6. 从同一个提交创建并推送正式发布分支，例如 `release/v0.2.0`，触发 `Publish to PyPI`。
+7. 如果 `pypi` Environment 配置了 Required reviewers，在 GitHub Actions 里批准部署。
 8. 在 PyPI 页面确认 wheel、sdist 和 README 渲染正常。
 
 ## 手动触发
 
-`publish-testpypi.yml` 只支持手动触发，用于试发。
+`publish-testpypi.yml` 支持 `v*` tag 和手动触发，用于试发。
 
-`publish.yml` 支持 `workflow_dispatch` 和 GitHub Release 触发。只有在确认当前 `main` 版本可发布时才手动触发 PyPI 正式发布。
+`publish.yml` 支持 `release/v*` 分支和 `workflow_dispatch` 触发。若你的 `pypi` Environment 只允许 `release/v*`，请从 `release/v<版本号>` 分支发布，不要直接用 tag 发布正式 PyPI。
 
 ## 回滚策略
 

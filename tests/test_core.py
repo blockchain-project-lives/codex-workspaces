@@ -95,15 +95,15 @@ class TestWorkspaceNames:
 
 
 class TestWorkspaceManager:
-    def test_create_switch_and_show_current(self, tmp_path: Path) -> None:
+    def test_init_switch_and_show_current(self, tmp_path: Path) -> None:
         manager, stdout, _ = make_manager(tmp_path)
 
-        manager.create_workspace("work", [])
+        manager.init_workspace("work", [])
         manager.switch_workspace("work", ["--no-stop", "--no-start"], ["switch", "work"])
         manager.show_current()
 
         output = stdout.getvalue()
-        assert "Created workspace directory" in output
+        assert "Initialized workspace directory" in output
         assert "Switched to: work" in output
         assert "work ->" in output
         assert manager.current_target().kind == "target"
@@ -111,9 +111,9 @@ class TestWorkspaceManager:
     def test_list_workspaces_marks_active_workspace(self, tmp_path: Path) -> None:
         manager, stdout, _ = make_manager(tmp_path)
 
-        manager.create_workspace("work", [])
+        manager.init_workspace("work", [])
         (manager.workspace_dir("work") / "config.toml").write_text("hello", encoding="utf-8")
-        manager.create_workspace("personal", [])
+        manager.init_workspace("personal", [])
         manager.switch_workspace("personal", ["--no-stop", "--no-start"], ["switch", "personal"])
         stdout.seek(0)
         stdout.truncate(0)
@@ -130,7 +130,7 @@ class TestWorkspaceManager:
 
     def test_directory_size_ignores_unreadable_entries(self, tmp_path: Path) -> None:
         manager, _, _ = make_manager(tmp_path)
-        manager.create_workspace("work", [])
+        manager.init_workspace("work", [])
         nested = manager.workspace_dir("work") / "nested"
         nested.mkdir()
         (nested / "data.txt").write_text("hello", encoding="utf-8")
@@ -140,7 +140,7 @@ class TestWorkspaceManager:
 
     def test_switch_refuses_to_replace_real_directory(self, tmp_path: Path) -> None:
         manager, _, _ = make_manager(tmp_path)
-        manager.create_workspace("work", [])
+        manager.init_workspace("work", [])
         manager.config.active_link.mkdir()
 
         with pytest.raises(CodexWorkspacesError, match="not a symlink"):
@@ -151,7 +151,7 @@ class TestWorkspaceManager:
         manager.config.active_link.mkdir()
         (manager.config.active_link / "config.toml").write_text("token = 'test'\n", encoding="utf-8")
 
-        manager.create_workspace("personal", ["--migrate-current"])
+        manager.init_workspace("personal", ["--migrate-current"])
 
         target = manager.workspace_dir("personal")
         assert (target / "config.toml").read_text(encoding="utf-8") == "token = 'test'\n"
@@ -163,11 +163,11 @@ class TestWorkspaceManager:
         manager.config.active_link.mkdir()
 
         with pytest.raises(CodexWorkspacesError, match="is running"):
-            manager.create_workspace("personal", ["--migrate-current"])
+            manager.init_workspace("personal", ["--migrate-current"])
 
     def test_default_switch_skips_app_control_on_non_macos_platforms(self, tmp_path: Path) -> None:
         manager, stdout, _ = make_manager(tmp_path, FakePlatform(app_control=False))
-        manager.create_workspace("work", [])
+        manager.init_workspace("work", [])
 
         manager.switch_workspace("work", [], ["switch", "work"])
 
@@ -179,7 +179,7 @@ class TestWorkspaceManager:
     def test_default_switch_uses_app_control_when_supported(self, tmp_path: Path) -> None:
         platform = FakePlatform(app_control=True)
         manager, _, _ = make_manager(tmp_path, platform)
-        manager.create_workspace("work", [])
+        manager.init_workspace("work", [])
 
         manager.switch_workspace("work", [], ["switch", "work"])
 
@@ -188,7 +188,7 @@ class TestWorkspaceManager:
 
     def test_switch_from_codex_terminal_without_delegation_is_blocked(self, tmp_path: Path) -> None:
         manager, _, _ = make_manager(tmp_path, FakePlatform(codex_terminal=True, delegate=False))
-        manager.create_workspace("work", [])
+        manager.init_workspace("work", [])
 
         with pytest.raises(CodexWorkspacesError, match="built-in Codex terminal"):
             manager.switch_workspace("work", ["--no-stop", "--no-start"], ["switch", "work"])
@@ -196,7 +196,7 @@ class TestWorkspaceManager:
     def test_switch_from_codex_terminal_delegates_when_available(self, tmp_path: Path) -> None:
         platform = FakePlatform(codex_terminal=True, delegate=True)
         manager, _, _ = make_manager(tmp_path, platform)
-        manager.create_workspace("work", [])
+        manager.init_workspace("work", [])
 
         manager.switch_workspace("work", ["--no-stop"], ["switch", "work", "--no-stop"])
 
@@ -204,7 +204,7 @@ class TestWorkspaceManager:
 
     def test_doctor_reports_environment_and_current_state(self, tmp_path: Path) -> None:
         manager, stdout, _ = make_manager(tmp_path)
-        manager.create_workspace("work", [])
+        manager.init_workspace("work", [])
         manager.switch_workspace("work", ["--no-stop", "--no-start"], ["switch", "work"])
         stdout.seek(0)
         stdout.truncate(0)
@@ -220,7 +220,7 @@ class TestWorkspaceManager:
 
     def test_rename_workspace_updates_active_link(self, tmp_path: Path) -> None:
         manager, stdout, _ = make_manager(tmp_path)
-        manager.create_workspace("work", [])
+        manager.init_workspace("work", [])
         manager.switch_workspace("work", ["--no-stop", "--no-start"], ["switch", "work"])
 
         manager.rename_workspace("work", "main")
@@ -234,7 +234,7 @@ class TestWorkspaceManager:
 
     def test_delete_workspace_requires_force_and_refuses_active_workspace(self, tmp_path: Path) -> None:
         manager, _, _ = make_manager(tmp_path)
-        manager.create_workspace("work", [])
+        manager.init_workspace("work", [])
 
         with pytest.raises(CodexWorkspacesError, match="requires --force"):
             manager.delete_workspace("work", [])
@@ -245,8 +245,8 @@ class TestWorkspaceManager:
 
     def test_delete_workspace_removes_inactive_workspace(self, tmp_path: Path) -> None:
         manager, stdout, _ = make_manager(tmp_path)
-        manager.create_workspace("work", [])
-        manager.create_workspace("old", [])
+        manager.init_workspace("work", [])
+        manager.init_workspace("old", [])
 
         manager.delete_workspace("old", ["--force"])
 
@@ -255,7 +255,7 @@ class TestWorkspaceManager:
 
     def test_note_workspace_sets_reads_clears_and_lists_note(self, tmp_path: Path) -> None:
         manager, stdout, _ = make_manager(tmp_path)
-        manager.create_workspace("work", [])
+        manager.init_workspace("work", [])
 
         manager.note_workspace("work", ["main", "profile"])
         manager.note_workspace("work", [])

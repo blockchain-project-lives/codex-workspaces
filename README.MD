@@ -15,7 +15,7 @@ On macOS, the Python CLI preserves the original app workflow: stop Codex App, sw
 
 - Manage workspace directories such as `~/.codex-work` and `~/.codex-personal`.
 - Switch the active `~/.codex` symlink or directory link.
-- Create workspace directories and migrate an existing real `~/.codex` directory.
+- Initialize workspace directories and migrate an existing real `~/.codex` directory.
 - Keep macOS Codex App stop/start/restart support.
 - Block unsafe operations from a detected Codex built-in terminal when they cannot be delegated safely.
 - Support English and Chinese output through `CODEX_WORKSPACES_LANG`.
@@ -68,17 +68,17 @@ Customize paths with `CODEX_WORKSPACES_LINK` and `CODEX_WORKSPACES_PREFIX`.
 
 ## Usage
 
-Create workspaces:
+Initialize workspaces:
 
 ```bash
-codex-workspaces create personal
-codex-workspaces create work
+codex-workspaces init personal
+codex-workspaces init work
 ```
 
 If you already have a real `~/.codex` directory, migrate it first:
 
 ```bash
-codex-workspaces create personal --migrate-current
+codex-workspaces init personal --migrate-current
 ```
 
 Switch workspaces:
@@ -144,6 +144,6 @@ Design, test, and release notes live in [`docs/`](docs/).
 
 ## Publishing
 
-CI runs tests on Linux, macOS, and Windows across Python 3.9, 3.11, and 3.13. The `Publish to PyPI` workflow builds and publishes distributions when a GitHub Release is published or the workflow is run manually.
+CI runs tests on Linux, macOS, and Windows across Python 3.9, 3.11, and 3.13. The `Publish to TestPyPI` workflow runs for `v*` tags, and the `Publish to PyPI` workflow publishes from `release/v*` branches or manual runs.
 
 Configure TestPyPI and PyPI Trusted Publishing for this repository before using the release workflows. See [`docs/RELEASE.zh-CN.md`](docs/RELEASE.zh-CN.md).

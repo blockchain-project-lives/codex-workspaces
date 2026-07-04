@@ -14,7 +14,7 @@ For safety, commands that would interrupt the running Codex app are handled care
 - Switch the active workspace by updating the `~/.codex` symlink.
 - Quit, start, or restart the Codex macOS app around workspace switches.
 - List workspaces and show the current workspace.
-- Create new workspace directories.
+- Initialize new workspace directories.
 - Migrate an existing first-time `~/.codex` directory into a named workspace.
 - Delegate `stop`, `switch`, and `restart` to Terminal.app when they are run from a detected Codex terminal.
 - Refuse `start` and migration from a detected Codex terminal.
@@ -69,7 +69,7 @@ codex-workspaces stop
 Then migrate the existing directory:
 
 ```bash
-codex-workspaces create personal --migrate-current
+codex-workspaces init personal --migrate-current
 ```
 
 This moves the existing `~/.codex` directory to `~/.codex-personal`, then creates a new `~/.codex` symlink pointing to it.
@@ -78,10 +78,10 @@ The migration command refuses to run while the Codex app is still running. If it
 
 Do not run migration from the built-in Codex terminal. The script checks common Codex environment markers, such as `CODEX_SHELL`, `CODEX_SANDBOX`, `CODEX_THREAD_ID`, and the Codex app bundle identifier, and blocks migration when those markers are present.
 
-Then create another workspace directory when needed:
+Then initialize another workspace directory when needed:
 
 ```bash
-codex-workspaces create work
+codex-workspaces init work
 ```
 
 Switch to it:
@@ -94,7 +94,7 @@ If `~/.codex` exists and is not a symlink, `codex-workspaces` refuses to switch 
 
 ## Usage
 
-The built-in Codex terminal can run safe commands such as `list`, `current`, and normal `create`. If you run `stop`, `switch`, or `restart` from the built-in Codex terminal, the script opens Terminal.app and runs the command there. Run `start` and migration from an external Terminal yourself.
+The built-in Codex terminal can run safe commands such as `list`, `current`, and normal `init`. If you run `stop`, `switch`, or `restart` from the built-in Codex terminal, the script opens Terminal.app and runs the command there. Run `start` and migration from an external Terminal yourself.
 
 List workspaces:
 
@@ -108,17 +108,17 @@ Show the current workspace:
 codex-workspaces current
 ```
 
-Create an workspace:
+Initialize a workspace:
 
 ```bash
-codex-workspaces create work
+codex-workspaces init work
 ```
 
 Migrate the existing real `~/.codex` directory into a new workspace:
 
 ```bash
 codex-workspaces stop
-codex-workspaces create personal --migrate-current
+codex-workspaces init personal --migrate-current
 ```
 
 Switch workspaces:
@@ -183,8 +183,8 @@ CODEX_APP_NAME="Codex" codex-workspaces restart
 
 - Workspace names may contain letters, numbers, dots, underscores, and hyphens.
 - `stop`, `switch`, and `restart` are delegated to Terminal.app when the script detects a Codex terminal environment.
-- `start` and `create <workspace> --migrate-current` are blocked when the script detects a Codex terminal environment.
-- `create <workspace> --migrate-current` only works when Codex is confirmed not running, `~/.codex` exists as a real directory, and `~/.codex-<workspace>` does not already exist.
+- `start` and `init <workspace> --migrate-current` are blocked when the script detects a Codex terminal environment.
+- `init <workspace> --migrate-current` only works when Codex is confirmed not running, `~/.codex` exists as a real directory, and `~/.codex-<workspace>` does not already exist.
 - Switching removes and recreates only the `~/.codex` symlink.
 - Workspace directories such as `~/.codex-work` are not deleted by switch commands.
 - The script is dependency-light and uses standard macOS commands such as `osascript`, `open`, `pgrep`, and `killall`.

@@ -138,8 +138,8 @@ class WorkspaceManager:
         if not found:
             self.info(
                 self.message(
-                    "未找到工作区目录。可以先执行: codex-workspaces create work",
-                    "No workspace directories found. You can create one with: codex-workspaces create work",
+                    "未找到工作区目录。可以先执行: codex-workspaces init work",
+                    "No workspace directories found. You can initialize one with: codex-workspaces init work",
                 )
             )
 
@@ -391,8 +391,8 @@ class WorkspaceManager:
         directory = self.workspace_dir(clean_name)
         if not directory.is_dir():
             self.fail(
-                f"工作区不存在: {directory}。可先执行: codex-workspaces create {clean_name}",
-                f"Workspace does not exist: {directory}. You can create it with: codex-workspaces create {clean_name}",
+                f"工作区不存在: {directory}。可先执行: codex-workspaces init {clean_name}",
+                f"Workspace does not exist: {directory}. You can initialize it with: codex-workspaces init {clean_name}",
             )
 
         active = self.config.active_link
@@ -430,7 +430,7 @@ class WorkspaceManager:
                     )
                 )
 
-    def create_workspace(self, name: str, args: Sequence[str]) -> None:
+    def init_workspace(self, name: str, args: Sequence[str]) -> None:
         migrate_current = False
         for arg in args:
             if arg in {"--migrate-current", "--migrate"}:
@@ -443,8 +443,8 @@ class WorkspaceManager:
 
         if not name:
             self.fail(
-                "缺少工作区名，例如: codex-workspaces create work",
-                "Missing workspace name, for example: codex-workspaces create work",
+                "缺少工作区名，例如: codex-workspaces init work",
+                "Missing workspace name, for example: codex-workspaces init work",
             )
 
         clean_name = strip_workspace_name(name)
@@ -476,7 +476,7 @@ class WorkspaceManager:
             return
 
         directory.mkdir(parents=True, exist_ok=False)
-        self.info(self.message(f"已创建工作区目录: {directory}", f"Created workspace directory: {directory}"))
+        self.info(self.message(f"已初始化工作区目录: {directory}", f"Initialized workspace directory: {directory}"))
 
     def rename_workspace(self, old_name: str, new_name: str) -> None:
         old_clean = strip_workspace_name(old_name)
@@ -664,8 +664,8 @@ def usage(lang: str) -> str:
   codex-workspaces restart [--force]
       重启 Codex App。当前仅支持 macOS。
 
-  codex-workspaces create <工作区名> [--migrate-current]
-      创建新的工作区目录 ~/.codex-<工作区名>。
+  codex-workspaces init <工作区名> [--migrate-current]
+      初始化新的工作区目录 ~/.codex-<工作区名>。
       加 --migrate-current 可将已有的真实 ~/.codex 目录迁移为该工作区。
 
   codex-workspaces rename <旧工作区名> <新工作区名>
@@ -723,8 +723,8 @@ Usage:
   codex-workspaces restart [--force]
       Restart Codex App. Currently supported on macOS only.
 
-  codex-workspaces create <workspace> [--migrate-current]
-      Create a new workspace directory ~/.codex-<workspace>.
+  codex-workspaces init <workspace> [--migrate-current]
+      Initialize a new workspace directory ~/.codex-<workspace>.
       Add --migrate-current to migrate an existing real ~/.codex directory.
 
   codex-workspaces rename <old-workspace> <new-workspace>

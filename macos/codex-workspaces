@@ -97,8 +97,8 @@ codex-workspaces - Codex 多工作区切换工具
       重启 Codex App。
       如在 Codex 内置 Terminal 中执行，会自动转交给外部 Terminal。
 
-  codex-workspaces create <工作区名> [--migrate-current]
-      创建新的工作区目录 ~/.codex-<工作区名>。
+  codex-workspaces init <工作区名> [--migrate-current]
+      初始化新的工作区目录 ~/.codex-<工作区名>。
       加 --migrate-current 可将已有的真实 ~/.codex 目录迁移为该工作区。
       迁移不能在 Codex 内置 Terminal 中执行，且迁移前必须先从外部
       Terminal 关闭 Codex App。
@@ -153,8 +153,8 @@ Usage:
       Restart Codex App.
       If run from the built-in Codex terminal, it delegates to Terminal.app.
 
-  codex-workspaces create <workspace> [--migrate-current]
-      Create a new workspace directory ~/.codex-<workspace>.
+  codex-workspaces init <workspace> [--migrate-current]
+      Initialize a new workspace directory ~/.codex-<workspace>.
       Add --migrate-current to migrate an existing real ~/.codex directory
       into this workspace.
       Migration must not be run from the built-in Codex terminal, and you
@@ -281,9 +281,9 @@ list_workspaces() {
 
   if [ "$found" -eq 0 ]; then
     if is_zh; then
-      info "未找到工作区目录。可以先执行: codex-workspaces create work"
+      info "未找到工作区目录。可以先执行: codex-workspaces init work"
     else
-      info "No workspace directories found. You can create one with: codex-workspaces create work"
+      info "No workspace directories found. You can initialize one with: codex-workspaces init work"
     fi
   fi
 
@@ -598,9 +598,9 @@ switch_workspace() {
   dir="$(workspace_dir "$name")"
   if [ ! -d "$dir" ]; then
     if is_zh; then
-      die "工作区不存在: $dir。可先执行: codex-workspaces create $name"
+      die "工作区不存在: $dir。可先执行: codex-workspaces init $name"
     else
-      die "Workspace does not exist: $dir. You can create it with: codex-workspaces create $name"
+      die "Workspace does not exist: $dir. You can initialize it with: codex-workspaces init $name"
     fi
   fi
 
@@ -628,7 +628,7 @@ switch_workspace() {
   fi
 }
 
-create_workspace() {
+init_workspace() {
   local name="${1:-}"
   local dir
   local migrate_current=0
@@ -654,7 +654,7 @@ create_workspace() {
   done
 
   if [ -z "$name" ]; then
-    if is_zh; then die "缺少工作区名，例如: codex-workspaces create work"; else die "Missing workspace name, for example: codex-workspaces create work"; fi
+    if is_zh; then die "缺少工作区名，例如: codex-workspaces init work"; else die "Missing workspace name, for example: codex-workspaces init work"; fi
   fi
   name="$(strip_workspace_name "$name")"
   validate_workspace_name "$name"
@@ -699,7 +699,7 @@ create_workspace() {
     fi
   else
     mkdir -p "$dir"
-    if is_zh; then info "已创建工作区目录: $dir"; else info "Created workspace directory: $dir"; fi
+    if is_zh; then info "已初始化工作区目录: $dir"; else info "Initialized workspace directory: $dir"; fi
   fi
 }
 
@@ -803,8 +803,8 @@ main() {
       done
       restart_codex "$force"
       ;;
-    create|new)
-      create_workspace "$@"
+    init|create|new)
+      init_workspace "$@"
       ;;
     install)
       install_self "${1:-}"

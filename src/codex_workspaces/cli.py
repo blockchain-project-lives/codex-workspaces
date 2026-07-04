@@ -61,11 +61,11 @@ def run(argv: Sequence[str], manager: WorkspaceManager) -> int:
                 manager.fail(f"未知参数: {arg}", f"Unknown option: {arg}")
         manager.restart_codex(force, argv)
         return 0
-    if command in {"create", "new"}:
+    if command in {"init", "create", "new"}:
         if not args:
-            manager.create_workspace("", [])
+            manager.init_workspace("", [])
         else:
-            manager.create_workspace(args[0], args[1:])
+            manager.init_workspace(args[0], args[1:])
         return 0
     if command in {"rename", "mv"}:
         if len(args) != 2:

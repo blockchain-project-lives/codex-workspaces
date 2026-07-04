@@ -8,7 +8,7 @@ Python 版的目标是在保留 shell 脚本的情况下，提供可测试、可
 
 ## 目标
 
-- 保持现有命令语义：`list`、`current`、`create`、`switch/use`、工作区名快捷切换、`stop/start/restart`。
+- 保持现有命令语义：`list`、`current`、`init`、`switch/use`、工作区名快捷切换、`stop/start/restart`。
 - 工作区目录管理跨平台可用。
 - macOS App 控制保留原行为。
 - 非 macOS 平台不执行 App 启停，只切换工作区链接。
@@ -76,7 +76,7 @@ Windows：
 ## 安全设计
 
 - 如果 `~/.codex` 存在且不是链接，`switch` 拒绝执行，避免覆盖真实目录。
-- `create --migrate-current` 只迁移真实目录，不迁移已有链接。
+- `init --migrate-current` 只迁移真实目录，不迁移已有链接。
 - macOS 上迁移前必须确认 Codex App 未运行。
 - Codex 内置 Terminal 中的危险命令要么转交外部 Terminal，要么拒绝。
 - 任何切换都只替换 active link，不删除 `~/.codex-<name>` 工作区目录。

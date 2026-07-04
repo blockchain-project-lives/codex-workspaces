@@ -15,7 +15,7 @@
 
 - 管理 `~/.codex-work`、`~/.codex-personal` 这类工作区目录。
 - 切换当前 `~/.codex` 软链接或目录链接。
-- 创建工作区目录，并支持把已有真实 `~/.codex` 目录迁移成工作区。
+- 初始化工作区目录，并支持把已有真实 `~/.codex` 目录迁移成工作区。
 - 保留 macOS 上 Codex App 的 `stop`、`start`、`restart`。
 - 在检测到 Codex 内置 Terminal 且无法安全转交时，阻止危险操作。
 - 支持中英文输出，可通过 `CODEX_WORKSPACES_LANG` 指定。
@@ -68,17 +68,17 @@ tmp="$(mktemp -t codex-workspaces.XXXXXX)" && curl -fsSL https://raw.githubuserc
 
 ## 使用
 
-创建工作区：
+初始化工作区：
 
 ```bash
-codex-workspaces create personal
-codex-workspaces create work
+codex-workspaces init personal
+codex-workspaces init work
 ```
 
 如果已经有一个真实存在的 `~/.codex` 目录，先迁移：
 
 ```bash
-codex-workspaces create personal --migrate-current
+codex-workspaces init personal --migrate-current
 ```
 
 切换工作区：
@@ -144,6 +144,6 @@ python3 -m twine check dist/*
 
 ## 发布
 
-CI 会在 Linux、macOS、Windows 上测试 Python 3.9、3.11、3.13。`Publish to PyPI` 工作流会在 GitHub Release 发布或手动触发时构建并发布到 PyPI。
+CI 会在 Linux、macOS、Windows 上测试 Python 3.9、3.11、3.13。`Publish to TestPyPI` 工作流会在 `v*` tag 上运行，`Publish to PyPI` 工作流支持从 `release/v*` 分支或手动触发发布。
 
 发布前需要在 TestPyPI 和 PyPI 分别配置 Trusted Publishing。详见 [`docs/RELEASE.zh-CN.md`](docs/RELEASE.zh-CN.md)。

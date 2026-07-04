@@ -14,7 +14,7 @@
 - 通过更新 `~/.codex` 软链接切换当前工作区。
 - 在切换工作区前后关闭、启动或重启 Codex macOS App。
 - 查看工作区列表和当前工作区。
-- 创建新的工作区目录。
+- 初始化新的工作区目录。
 - 将首次使用时已有的 `~/.codex` 真实目录迁移成指定工作区。
 - 在检测到 Codex 内置 Terminal 环境时，将 `stop`、`switch/use` 和 `restart` 转交给 Terminal.app 执行。
 - 在检测到 Codex 内置 Terminal 环境时，拒绝执行 `start` 和迁移命令。
@@ -69,7 +69,7 @@ codex-workspaces stop
 然后迁移已有目录：
 
 ```bash
-codex-workspaces create personal --migrate-current
+codex-workspaces init personal --migrate-current
 ```
 
 这个命令会把已有的 `~/.codex` 目录移动到 `~/.codex-personal`，然后重新创建 `~/.codex` 软链接指向它。
@@ -78,10 +78,10 @@ codex-workspaces create personal --migrate-current
 
 不要在 Codex 内置 Terminal 中执行迁移。脚本会检查常见的 Codex 环境标记，例如 `CODEX_SHELL`、`CODEX_SANDBOX`、`CODEX_THREAD_ID` 和 Codex App bundle identifier；一旦检测到这些标记，就会拒绝迁移。
 
-之后如果需要，可以再创建另一个工作区目录：
+之后如果需要，可以再初始化另一个工作区目录：
 
 ```bash
-codex-workspaces create work
+codex-workspaces init work
 ```
 
 切换到该工作区：
@@ -94,7 +94,7 @@ codex-workspaces work
 
 ## 使用方法
 
-Codex 内置 Terminal 可以执行 `list`、`current` 和普通 `create` 这类安全命令。如果你在 Codex 内置 Terminal 中执行 `stop`、`switch/use` 或 `restart`，脚本会打开 Terminal.app 并在外部窗口里运行该命令。`start` 和迁移请自己在外部 Terminal 中执行。
+Codex 内置 Terminal 可以执行 `list`、`current` 和普通 `init` 这类安全命令。如果你在 Codex 内置 Terminal 中执行 `stop`、`switch/use` 或 `restart`，脚本会打开 Terminal.app 并在外部窗口里运行该命令。`start` 和迁移请自己在外部 Terminal 中执行。
 
 查看工作区列表：
 
@@ -108,17 +108,17 @@ codex-workspaces list
 codex-workspaces current
 ```
 
-创建工作区：
+初始化工作区：
 
 ```bash
-codex-workspaces create work
+codex-workspaces init work
 ```
 
 将已有的真实 `~/.codex` 目录迁移成新工作区：
 
 ```bash
 codex-workspaces stop
-codex-workspaces create personal --migrate-current
+codex-workspaces init personal --migrate-current
 ```
 
 切换工作区：
@@ -183,8 +183,8 @@ CODEX_APP_NAME="Codex" codex-workspaces restart
 
 - 工作区名只能包含字母、数字、点、下划线和连字符。
 - 检测到 Codex 内置 Terminal 环境时，`stop`、`switch/use` 和 `restart` 会被转交给 Terminal.app 执行。
-- 检测到 Codex 内置 Terminal 环境时，`start` 和 `create <工作区名> --migrate-current` 会被拒绝执行。
-- `create <工作区名> --migrate-current` 只会在确认 Codex 未运行、`~/.codex` 是真实目录且 `~/.codex-<工作区名>` 不存在时执行迁移。
+- 检测到 Codex 内置 Terminal 环境时，`start` 和 `init <工作区名> --migrate-current` 会被拒绝执行。
+- `init <工作区名> --migrate-current` 只会在确认 Codex 未运行、`~/.codex` 是真实目录且 `~/.codex-<工作区名>` 不存在时执行迁移。
 - 切换工作区时只会删除并重建 `~/.codex` 这个软链接。
 - `~/.codex-work` 这类工作区目录不会被切换命令删除。
 - 脚本依赖很少，主要使用 macOS 自带命令，例如 `osascript`、`open`、`pgrep` 和 `killall`。

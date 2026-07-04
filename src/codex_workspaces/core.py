@@ -8,6 +8,7 @@ import shlex
 import shutil
 import stat
 import sys
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -76,11 +77,13 @@ class WorkspaceManager:
         platform_service: Optional[SystemPlatform] = None,
         stdout: Optional[TextIO] = None,
         stderr: Optional[TextIO] = None,
+        stdin: Optional[TextIO] = None,
     ) -> None:
         self.config = config
         self.platform = platform_service or SystemPlatform()
         self.stdout = stdout or sys.stdout
         self.stderr = stderr or sys.stderr
+        self.stdin = stdin or sys.stdin
         self.store = WorkspaceStore(config)
 
     def is_zh(self) -> bool:
@@ -265,6 +268,29 @@ class WorkspaceManager:
         name = self.current_name(current.path) or "unknown"
         self.info(f"{name} -> {current.path}")
 
+    def workspace_info(self, name: str) -> None:
+        clean_name = strip_workspace_name(name)
+        validate_workspace_name(clean_name)
+        directory = self.workspace_dir(clean_name)
+        if not directory.is_dir():
+            self.fail(f"工作区不存在: {directory}", f"Workspace does not exist: {directory}")
+        current = self.current_target()
+        is_active = current.kind == "target" and current.path is not None and self.same_path(self.real_dir(directory), current.path)
+        meta = self.store.ensure_workspace_meta(clean_name, directory)
+        self.info(self.bold(self.message(f"工作区: {clean_name}", f"Workspace: {clean_name}")))
+        self.info(f"name: {clean_name}")
+        self.info(f"path: {directory}")
+        self.info(f"active: {self._yes_no(is_active)}")
+        self.info(f"size: {self.format_size(self.directory_size(directory))}")
+        self.info(f"modified: {self.format_mtime(directory)}")
+        self.info(f"note: {self.workspace_note(directory) or '-'}")
+        self.info(f"default_account_id: {meta.default_account_id or '-'}")
+        self.info(f"active_account_id: {meta.active_account_id or '-'}")
+        self.info(f"restore_default_on_enter: {self._yes_no(meta.restore_default_on_enter)}")
+        self.info(f"created_at: {meta.created_at}")
+        self.info(f"updated_at: {meta.updated_at}")
+        self.info(f"last_used_at: {meta.last_used_at or '-'}")
+
     def doctor(self) -> None:
         current = self.current_target()
         workspaces = self.workspace_dirs()
@@ -297,6 +323,69 @@ class WorkspaceManager:
         running_text = "unknown" if running is None else self._yes_no(running)
         self.info(f"app running: {running_text}")
         self.info(f"codex terminal detected: {self._yes_no(self.platform.is_codex_terminal())}")
+        self.info(f"restore policy: {self.config.restore_policy}")
+        self.render_account_doctor()
+
+    def render_account_doctor(self) -> None:
+        self.store.ensure_layout()
+        issues: list[str] = []
+        accounts = {account.id: account for account in self.store.list_accounts()}
+        account_refs: dict[str, set[str]] = {account_id: set() for account_id in accounts}
+
+        for directory in self.workspace_dirs():
+            name = strip_workspace_name(str(directory))
+            meta = self.store.ensure_workspace_meta(name, directory)
+            auth_path = directory / "auth.json"
+            if auth_path.is_file() and not meta.default_account_id:
+                issues.append(f"workspace {name} has auth.json but no default account")
+            for kind, account_id in (("default", meta.default_account_id), ("active", meta.active_account_id)):
+                if not account_id:
+                    continue
+                account_refs.setdefault(account_id, set()).add(f"{kind}:{name}")
+                if account_id not in accounts or not self.store.account_auth_path(account_id).is_file():
+                    issues.append(f"workspace {name} {kind}_account_id points to missing account {account_id}")
+
+        for account_id, refs in sorted(account_refs.items()):
+            if account_id in accounts and not refs:
+                issues.append(f"account {account_id} is not referenced by any workspace")
+
+        for path, expected in (
+            (self.config.root_dir, 0o700),
+            (self.config.workspaces_dir, 0o700),
+            (self.config.accounts_dir, 0o700),
+        ):
+            if path.exists() and self.path_mode(path) is not None and self.path_mode(path) != expected:
+                issues.append(f"{path} permission is {self.path_mode(path):03o}, expected {expected:03o}")
+
+        for account_id in accounts:
+            for path in (self.store.account_dir(account_id), self.store.account_auth_path(account_id), self.store.account_meta_path(account_id)):
+                mode = self.path_mode(path)
+                if mode is None:
+                    continue
+                expected = 0o700 if path.is_dir() else 0o600
+                if mode != expected:
+                    issues.append(f"{path} permission is {mode:03o}, expected {expected:03o}")
+
+        legacy_dirs = self.scan_legacy_workspaces()
+        legacy_accounts = self.config.home_dir / ".codex-accounts"
+        if legacy_dirs:
+            issues.append(f"legacy workspace directories still exist: {len(legacy_dirs)}")
+        if legacy_accounts.exists():
+            issues.append(f"legacy accounts directory still exists: {legacy_accounts}")
+
+        self.info(f"accounts found: {len(accounts)}")
+        if not issues:
+            self.info("account diagnostics: ok")
+            return
+        self.info("account diagnostics:")
+        for issue in issues:
+            self.info(f"  ! {issue}")
+
+    def path_mode(self, path: Path) -> Optional[int]:
+        try:
+            return stat.S_IMODE(path.stat().st_mode)
+        except OSError:
+            return None
 
     def show_stats(self, name: Optional[str] = None, days: int = 7) -> None:
         clean_name, directory = self.stats_target(name)
@@ -437,6 +526,7 @@ class WorkspaceManager:
             "restart": "重启 Codex",
             "switch": "切换工作区",
             "migration": "迁移工作区目录",
+            "account login": "登录账号",
         }
         self.fail(
             f"不能在 Codex 内置 Terminal 中执行{zh_actions.get(action, action)}。请打开外部系统 Terminal，在 Codex 外部运行该命令。",
@@ -543,33 +633,34 @@ class WorkspaceManager:
             suffix += 1
         return backup_dir
 
-    def copy_path_for_backup(self, source: Path, destination: Path) -> None:
-        self.copy_supported_tree(source, destination, context="backup")
+    def copy_path_for_backup(self, source: Path, destination: Path) -> int:
+        return self.copy_supported_tree(source, destination, context="backup")
 
-    def copy_supported_tree(self, source: Path, destination: Path, *, context: str) -> None:
+    def copy_supported_tree(self, source: Path, destination: Path, *, context: str) -> int:
         try:
             source_stat = source.lstat()
         except OSError as exc:
             self.info(self.message(f"跳过无法读取的路径: {source} ({exc})", f"Skipping unreadable path: {source} ({exc})"))
-            return
+            return 1
 
         mode = source_stat.st_mode
         destination.parent.mkdir(parents=True, exist_ok=True)
         if stat.S_ISLNK(mode):
             destination.symlink_to(os.readlink(source))
-            return
+            return 0
         if stat.S_ISDIR(mode):
             destination.mkdir(exist_ok=True)
             try:
                 shutil.copystat(source, destination, follow_symlinks=False)
             except OSError:
                 pass
+            skipped = 0
             for child in sorted(source.iterdir()):
-                self.copy_supported_tree(child, destination / child.name, context=context)
-            return
+                skipped += self.copy_supported_tree(child, destination / child.name, context=context)
+            return skipped
         if stat.S_ISREG(mode):
             shutil.copy2(source, destination)
-            return
+            return 0
 
         self.info(
             self.message(
@@ -577,22 +668,25 @@ class WorkspaceManager:
                 f"Skipping unsupported special file during {context}: {source}",
             )
         )
+        return 1
 
     def backup_migration_sources(
         self,
         backup_dir: Path,
         workspaces: Sequence[LegacyWorkspaceCandidate],
         legacy_accounts_dir: Optional[Path],
-    ) -> None:
+    ) -> int:
+        skipped = 0
         if self.config.active_link.exists() or self.config.active_link.is_symlink():
             self.info(self.message(f"备份当前链接: {self.config.active_link}", f"Backing up active link: {self.config.active_link}"))
-            self.copy_path_for_backup(self.config.active_link, backup_dir / "codex")
+            skipped += self.copy_path_for_backup(self.config.active_link, backup_dir / "codex")
         for candidate in workspaces:
             self.info(self.message(f"备份旧工作区: {candidate.source}", f"Backing up legacy workspace: {candidate.source}"))
-            self.copy_path_for_backup(candidate.source, backup_dir / "legacy-workspaces" / candidate.source.name)
+            skipped += self.copy_path_for_backup(candidate.source, backup_dir / "legacy-workspaces" / candidate.source.name)
         if legacy_accounts_dir and legacy_accounts_dir.is_dir():
             self.info(self.message(f"备份旧账号目录: {legacy_accounts_dir}", f"Backing up legacy accounts: {legacy_accounts_dir}"))
-            self.copy_path_for_backup(legacy_accounts_dir, backup_dir / "legacy-accounts" / legacy_accounts_dir.name)
+            skipped += self.copy_path_for_backup(legacy_accounts_dir, backup_dir / "legacy-accounts" / legacy_accounts_dir.name)
+        return skipped
 
     def import_legacy_account_candidate(self, candidate: LegacyAccountCandidate) -> str:
         self.store.create_account(
@@ -639,12 +733,15 @@ class WorkspaceManager:
             self.store.ensure_layout()
             backup_dir = self.migration_backup_dir()
             self.info(self.message(f"准备迁移，备份目录: {backup_dir}", f"Preparing migration; backup directory: {backup_dir}"))
-            self.backup_migration_sources(backup_dir, candidates, legacy_accounts_dir if account_candidates else None)
+            skipped_special = self.backup_migration_sources(backup_dir, candidates, legacy_accounts_dir if account_candidates else None)
             active_target = self.current_target().path if self.current_target().kind == "target" else None
             active_migrated: Optional[LegacyWorkspaceCandidate] = None
+            migrated_workspace_names: list[str] = []
+            created_account_ids: list[str] = []
             for candidate in candidates:
                 self.info(self.message(f"迁移工作区: {candidate.name}", f"Migrating workspace: {candidate.name}"))
-                self.copy_supported_tree(candidate.source, candidate.target, context="migration")
+                skipped_special += self.copy_supported_tree(candidate.source, candidate.target, context="migration")
+                migrated_workspace_names.append(candidate.name)
                 try:
                     candidate.target.chmod(0o700)
                 except OSError:
@@ -660,6 +757,7 @@ class WorkspaceManager:
                         auth_source=candidate.target / "auth.json",
                         notes=f"{candidate.name} workspace default account",
                     )
+                    created_account_ids.append(candidate.account_id)
                     meta.default_account_id = candidate.account_id
                     meta.active_account_id = candidate.account_id
                 meta.name = candidate.name
@@ -680,10 +778,17 @@ class WorkspaceManager:
                     self.platform.remove_directory_link(self.config.active_link)
                 self.platform.create_directory_link(link_target, self.config.active_link)
             self.info(self.message(f"迁移完成，备份目录: {backup_dir}", f"Migration complete; backup directory: {backup_dir}"))
-            if candidates:
-                self.info(self.message(f"已迁移工作区: {len(candidates)}", f"Migrated workspaces: {len(candidates)}"))
-            if imported_accounts:
-                self.info(self.message(f"已导入旧账号: {len(imported_accounts)}", f"Imported legacy accounts: {len(imported_accounts)}"))
+            renamed_conflicts = [
+                candidate.target_id
+                for candidate in account_candidates
+                if candidate.target_id != self.account_id_from_input(candidate.name)
+            ]
+            self.info(self.message("迁移报告:", "Migration report:"))
+            self.info(self.message(f"  已迁移工作区: {len(migrated_workspace_names)}", f"  migrated workspaces: {len(migrated_workspace_names)}"))
+            self.info(self.message(f"  已创建默认账号: {len(created_account_ids)}", f"  default accounts created: {len(created_account_ids)}"))
+            self.info(self.message(f"  已导入旧账号: {len(imported_accounts)}", f"  legacy accounts imported: {len(imported_accounts)}"))
+            self.info(self.message(f"  冲突改名账号: {len(renamed_conflicts)}", f"  renamed account conflicts: {len(renamed_conflicts)}"))
+            self.info(self.message(f"  跳过特殊文件: {skipped_special}", f"  special files skipped: {skipped_special}"))
 
     def render_migration_plan(
         self,
@@ -752,7 +857,7 @@ class WorkspaceManager:
         clean_name = strip_workspace_name(name)
         validate_workspace_name(clean_name)
         with self.store.lock():
-            self.save_current_live_auth()
+            previous_account_id = self.save_current_live_auth()
             directory = self.workspace_dir(clean_name)
             if not directory.is_dir():
                 self.fail(
@@ -784,9 +889,10 @@ class WorkspaceManager:
             self.platform.create_directory_link(directory, active)
             meta = self.store.ensure_workspace_meta(clean_name, directory)
             meta.last_used_at = iso_now()
-            if meta.restore_default_on_enter and meta.default_account_id:
-                self.restore_workspace_account(directory, meta, meta.default_account_id)
-                meta.active_account_id = meta.default_account_id
+            restore_account_id = self.restore_account_for_workspace_enter(meta, previous_account_id)
+            if restore_account_id:
+                self.restore_workspace_account(directory, meta, restore_account_id)
+                meta.active_account_id = restore_account_id
             meta.updated_at = iso_now()
             self.store.write_workspace_meta(directory, meta)
             self.info(self.message(f"已切换到: {clean_name} -> {directory}", f"Switched to: {clean_name} -> {directory}"))
@@ -946,19 +1052,34 @@ class WorkspaceManager:
         shutil.rmtree(directory)
         self.info(self.message(f"已删除工作区: {clean_name}", f"Deleted workspace: {clean_name}"))
 
-    def save_current_live_auth(self) -> None:
+    def restore_account_for_workspace_enter(self, meta: WorkspaceMeta, previous_account_id: Optional[str]) -> Optional[str]:
+        policy = self.config.restore_policy
+        if policy == "keep-current":
+            if previous_account_id and self.store.account_auth_path(previous_account_id).is_file():
+                return previous_account_id
+            return meta.active_account_id if meta.active_account_id and self.store.account_auth_path(meta.active_account_id).is_file() else None
+        if policy == "last-active":
+            if meta.active_account_id and self.store.account_auth_path(meta.active_account_id).is_file():
+                return meta.active_account_id
+            return meta.default_account_id if meta.default_account_id and self.store.account_auth_path(meta.default_account_id).is_file() else None
+        if meta.restore_default_on_enter and meta.default_account_id:
+            return meta.default_account_id
+        return None
+
+    def save_current_live_auth(self) -> Optional[str]:
         current = self.current_target()
         if current.kind != "target" or current.path is None:
-            return
+            return None
         name = self.current_name(current.path)
         if not name:
-            return
+            return None
         meta = self.store.ensure_workspace_meta(name, current.path)
         if not meta.active_account_id:
-            return
+            return None
         auth_path = current.path / "auth.json"
         if auth_path.is_file() and self.store.account_meta_path(meta.active_account_id).is_file():
             self.store.save_auth_to_account(meta.active_account_id, auth_path)
+        return meta.active_account_id
 
     def restore_workspace_account(self, directory: Path, meta: WorkspaceMeta, account_id: str) -> None:
         if not self.store.account_auth_path(account_id).is_file():
@@ -1001,13 +1122,17 @@ class WorkspaceManager:
         if not accounts:
             self.info(self.message("未找到账号。", "No accounts found."))
             return
-        self.info("CURRENT  DEFAULT  ACCOUNT          SOURCE              WORKSPACE    EMAIL                PLAN    LAST_USED")
+        self.info("CURRENT  DEFAULT  AUTH  STATUS       ACCOUNT          SOURCE              DEFAULT_IN        ACTIVE_IN         NOTE                     LAST_USED")
         for account in accounts:
             current_mark = "*" if account.id == current_account else ""
             default_mark = "*" if account.id == default_account else ""
+            default_refs, active_refs = self.workspace_account_references(account.id)
+            status = self.account_reference_status(default_refs, active_refs)
             self.info(
-                f"{current_mark:<8} {default_mark:<8} {account.id:<16} {account.source:<19} "
-                f"{(account.bound_workspace or '-'): <12} {(account.email or '-'): <20} {(account.plan or '-'): <7} {account.last_used_at or '-'}"
+                f"{current_mark:<8} {default_mark:<8} {self._yes_no(self.store.account_auth_path(account.id).is_file()):<5} "
+                f"{status:<12} {account.id:<16} {account.source:<19} "
+                f"{self.format_refs(default_refs):<17} {self.format_refs(active_refs):<17} "
+                f"{self.format_note(account.notes) or '-':<24} {account.last_used_at or '-'}"
             )
 
     def accounts_current(self) -> None:
@@ -1023,8 +1148,42 @@ class WorkspaceManager:
         if not self.store.account_meta_path(account_id).is_file():
             self.fail(f"账号不存在: {account_id}", f"Account not found: {account_id}\nHint: run `codex-workspaces accounts list`")
         meta = self.store.read_account_meta(account_id)
+        current_account = None
+        default_account = None
+        current_workspace = None
+        current = self.current_target()
+        if current.kind == "target" and current.path is not None:
+            current_workspace = self.current_name(current.path)
+            if current_workspace:
+                workspace_meta = self.store.ensure_workspace_meta(current_workspace, current.path)
+                current_account = workspace_meta.active_account_id
+                default_account = workspace_meta.default_account_id
+        default_refs, active_refs = self.workspace_account_references(account_id)
+        self.info(self.bold(self.message(f"账号: {account_id}", f"Account: {account_id}")))
+        self.info(f"current: {self._yes_no(account_id == current_account)}")
+        self.info(f"default_for_current_workspace: {self._yes_no(account_id == default_account)}")
+        self.info(f"current_workspace: {current_workspace or '-'}")
+        self.info(f"auth_exists: {self._yes_no(self.store.account_auth_path(account_id).is_file())}")
+        self.info(f"orphan: {self._yes_no(not default_refs and not active_refs)}")
+        self.info(f"default_workspaces: {self.format_refs(default_refs)}")
+        self.info(f"active_workspaces: {self.format_refs(active_refs)}")
+        self.info(f"path: {self.store.account_dir(account_id)}")
+        self.info(f"auth_path: {self.store.account_auth_path(account_id)}")
+        self.info(f"meta_path: {self.store.account_meta_path(account_id)}")
         for key, value in meta.to_dict().items():
             self.info(f"{key}: {value if value is not None else '-'}")
+
+    def account_reference_status(self, default_refs: Sequence[str], active_refs: Sequence[str]) -> str:
+        if not default_refs and not active_refs:
+            return "orphan"
+        if active_refs and not default_refs:
+            return "active-only"
+        if default_refs and active_refs:
+            return "default+active"
+        return "default"
+
+    def format_refs(self, refs: Sequence[str]) -> str:
+        return ", ".join(refs) if refs else "-"
 
     def accounts_init(self, account: str) -> None:
         self.store.ensure_layout()
@@ -1059,6 +1218,224 @@ class WorkspaceManager:
                 )
             self.store.save_auth_to_account(account_id, current.path / "auth.json")
         self.info(self.message(f"已保存账号: {account_id}", f"Saved account: {account_id}"))
+
+    def accounts_add(self, account: str, args: Sequence[str]) -> None:
+        login = False
+        stop_first = True
+        start_after = True
+        force = False
+        keep_temp = False
+        timeout = 300
+        index = 0
+        while index < len(args):
+            arg = args[index]
+            if arg == "--login":
+                login = True
+            elif arg == "--no-stop":
+                stop_first = False
+            elif arg == "--no-start":
+                start_after = False
+            elif arg in {"--force", "-f"}:
+                force = True
+            elif arg == "--keep-temp":
+                keep_temp = True
+            elif arg == "--timeout":
+                index += 1
+                if index >= len(args):
+                    self.fail("缺少 --timeout 数值", "Missing value for --timeout")
+                timeout = self.parse_non_negative_int(args[index], "--timeout")
+            elif arg.startswith("--timeout="):
+                timeout = self.parse_non_negative_int(arg.split("=", 1)[1], "--timeout")
+            else:
+                self.fail(f"未知参数: {arg}", f"Unknown option: {arg}")
+            index += 1
+
+        if not login:
+            self.fail(
+                "用法: codex-workspaces accounts add <账号> --login",
+                "Usage: codex-workspaces accounts add <account> --login",
+            )
+        if self.platform.is_codex_terminal():
+            self.require_external_terminal("account login")
+
+        self.store.ensure_layout()
+        account_id = self.account_id_from_input(account)
+        account_name = self.account_name_from_input(account)
+        if self.store.account_dir(account_id).exists():
+            self.fail(f"账号已存在: {account_id}", f"Account already exists: {account_id}")
+
+        temp_name = self.login_temp_workspace_name(account_name)
+        temp_dir = self.workspace_dir(temp_name)
+        previous = self.current_target()
+        previous_path = previous.path if previous.kind == "target" else None
+        previous_name = self.current_name(previous_path) if previous_path is not None else None
+        if self.config.active_link.exists() and not self.platform.is_directory_link(self.config.active_link):
+            self.fail(
+                f"{self.config.active_link} 已存在但不是软链接。为避免误删，请先手动备份/迁移它。",
+                f"{self.config.active_link} already exists but is not a symlink. Please back it up or migrate it manually first.",
+            )
+
+        if stop_first:
+            if self.platform.supports_app_control:
+                self.stop_codex(force)
+            else:
+                self.info(self.message("当前平台不支持自动关闭 Codex App。", "App stop is not supported on this platform."))
+
+        with self.store.lock():
+            previous_account_id = self.save_current_live_auth()
+            if temp_dir.exists():
+                self.fail(
+                    f"临时登录工作区已存在: {temp_dir}",
+                    f"Login temporary workspace already exists: {temp_dir}\nHint: run `codex-workspaces accounts cleanup-login-temp`.",
+                )
+            temp_dir.mkdir(parents=True, exist_ok=False)
+            try:
+                temp_dir.chmod(0o700)
+            except OSError:
+                pass
+            temp_meta = self.store.ensure_workspace_meta(temp_name, temp_dir)
+            temp_meta.last_used_at = iso_now()
+            temp_meta.updated_at = iso_now()
+            self.store.write_workspace_meta(temp_dir, temp_meta)
+            self.activate_workspace_link(temp_dir)
+
+        self.info(
+            self.message(
+                f"已切换到临时登录工作区: {temp_name}",
+                f"Switched to login temporary workspace: {temp_name}",
+            )
+        )
+        self.info(
+            self.message(
+                "请在 Codex 中登录新账号。登录完成并生成 auth.json 后会保存账号并恢复原工作区。",
+                "Log in to the new account in Codex. After auth.json appears, the account will be saved and the previous workspace restored.",
+            )
+        )
+
+        if start_after:
+            if self.platform.supports_app_control:
+                self.start_codex()
+            else:
+                self.info(self.message("当前平台不支持自动启动 Codex App，请手动启动并登录。", "App start is not supported on this platform; start Codex manually and log in."))
+
+        self.wait_for_login_auth(temp_dir, timeout)
+
+        if stop_first:
+            if self.platform.supports_app_control:
+                self.stop_codex(force)
+            else:
+                self.info(self.message("当前平台不支持自动关闭 Codex App，继续恢复工作区链接。", "App stop is not supported on this platform; restoring the workspace link."))
+
+        with self.store.lock():
+            self.store.create_account(
+                account_id,
+                name=account_name,
+                source="login-temp",
+                bound_workspace=None,
+                auth_source=temp_dir / "auth.json",
+                notes="created by accounts add --login",
+            )
+            self.restore_after_login_temp(previous_path, previous_name, previous_account_id)
+            if not keep_temp:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+
+        if start_after:
+            if self.platform.supports_app_control:
+                self.start_codex()
+            else:
+                self.info(self.message("当前平台不支持自动启动 Codex App，工作区链接已恢复。", "App start is not supported on this platform; the workspace link has been restored."))
+        self.info(self.message(f"已新增账号: {account_id}", f"Added account: {account_id}"))
+
+    def login_temp_workspace_name(self, account_name: str) -> str:
+        base = f"login-{account_name}"
+        if len(base) <= 64:
+            return base
+        digest = hashlib.sha1(account_name.encode("utf-8")).hexdigest()[:8]
+        return f"login-{account_name[:49]}-{digest}"
+
+    def activate_workspace_link(self, directory: Path) -> None:
+        self.config.active_link.parent.mkdir(parents=True, exist_ok=True)
+        if self.platform.is_directory_link(self.config.active_link):
+            self.platform.remove_directory_link(self.config.active_link)
+        self.platform.create_directory_link(directory, self.config.active_link)
+
+    def wait_for_login_auth(self, directory: Path, timeout: int) -> None:
+        auth_path = directory / "auth.json"
+        if auth_path.is_file():
+            return
+        if getattr(self.stdin, "isatty", lambda: False)():
+            self.info(self.message("登录完成后按 Enter 继续。", "Press Enter after login completes."))
+            self.stdin.readline()
+            if auth_path.is_file():
+                return
+        if timeout > 0:
+            deadline = time.monotonic() + timeout
+            self.info(self.message(f"等待 auth.json，最多 {timeout} 秒。", f"Waiting for auth.json for up to {timeout}s."))
+            while time.monotonic() < deadline:
+                if auth_path.is_file():
+                    return
+                time.sleep(1)
+        if auth_path.is_file():
+            return
+        self.fail(
+            f"未发现登录生成的 auth.json: {auth_path}",
+            f"Login auth.json was not created: {auth_path}\nHint: finish login, run `codex-workspaces accounts save {strip_workspace_name(str(directory)).removeprefix('login-')}`, or clean up with `codex-workspaces accounts cleanup-login-temp`.",
+        )
+
+    def restore_after_login_temp(
+        self,
+        previous_path: Optional[Path],
+        previous_name: Optional[str],
+        previous_account_id: Optional[str],
+    ) -> None:
+        if self.platform.is_directory_link(self.config.active_link):
+            self.platform.remove_directory_link(self.config.active_link)
+        if previous_path is None:
+            return
+        self.platform.create_directory_link(previous_path, self.config.active_link)
+        if not previous_name:
+            return
+        meta = self.store.ensure_workspace_meta(previous_name, previous_path)
+        restore_account_id = previous_account_id or meta.active_account_id or meta.default_account_id
+        if restore_account_id and self.store.account_auth_path(restore_account_id).is_file():
+            self.restore_workspace_account(previous_path, meta, restore_account_id)
+            meta.active_account_id = restore_account_id
+        meta.last_used_at = iso_now()
+        meta.updated_at = iso_now()
+        self.store.write_workspace_meta(previous_path, meta)
+
+    def parse_non_negative_int(self, value: str, option: str) -> int:
+        try:
+            parsed = int(value)
+        except ValueError:
+            self.fail(f"{option} 必须是非负整数", f"{option} must be a non-negative integer")
+        if parsed < 0:
+            self.fail(f"{option} 必须是非负整数", f"{option} must be a non-negative integer")
+        return parsed
+
+    def accounts_cleanup_login_temp(self, args: Sequence[str]) -> None:
+        for arg in args:
+            if arg not in {"--force"}:
+                self.fail(f"未知参数: {arg}", f"Unknown option: {arg}")
+        self.store.ensure_layout()
+        current = self.current_target()
+        removed: list[str] = []
+        skipped_active: list[str] = []
+        with self.store.lock():
+            for directory in self.workspace_dirs():
+                name = strip_workspace_name(str(directory))
+                if not name.startswith("login-"):
+                    continue
+                if current.kind == "target" and current.path is not None and self.same_path(self.real_dir(directory), current.path):
+                    skipped_active.append(name)
+                    continue
+                shutil.rmtree(directory)
+                removed.append(name)
+        self.info(self.message(f"已清理临时登录工作区: {len(removed)}", f"Cleaned login temporary workspaces: {len(removed)}"))
+        for name in removed:
+            self.info(f"  {name}")
+        if skipped_active:
+            self.info(self.message(f"跳过当前临时工作区: {', '.join(skipped_active)}", f"Skipped active temporary workspace: {', '.join(skipped_active)}"))
 
     def accounts_use(self, account: str) -> None:
         self.store.ensure_layout()
@@ -1412,8 +1789,11 @@ def usage(lang: str) -> str:
   codex-workspaces current
       显示当前 ~/.codex 指向哪个工作区。
 
+  codex-workspaces info <工作区名>
+      查看单个工作区的路径、大小、备注、默认账号、当前账号和最近使用时间。
+
   codex-workspaces doctor
-      输出路径、平台、App 控制和当前工作区状态诊断。
+      输出路径、平台、App 控制、当前工作区和账号状态诊断。
 
   codex-workspaces stats [工作区名] [--days 天数]
       只读本地 Codex state_*.sqlite，统计 token 用量。
@@ -1446,15 +1826,18 @@ def usage(lang: str) -> str:
   codex-workspaces accounts info <账号>
   codex-workspaces accounts init <账号>
   codex-workspaces accounts save <账号>
+  codex-workspaces accounts add <账号> --login [--timeout 秒] [--keep-temp]
+  codex-workspaces accounts login-temp <账号>
   codex-workspaces accounts use <账号>
   codex-workspaces accounts restore-default [工作区]
   codex-workspaces accounts set-default <工作区> <账号> [--activate]
   codex-workspaces accounts rename <旧账号> <新账号>
   codex-workspaces accounts delete <账号> --force
   codex-workspaces accounts note <账号> [备注文本|--clear]
+  codex-workspaces accounts cleanup-login-temp
   codex-workspaces accounts import-workspaces
   codex-workspaces accounts import-legacy <旧账号目录>
-      管理 auth.json 账号快照。accounts use 是临时切换，不修改工作区默认账号。
+      管理 auth.json 账号快照。accounts add --login 会创建临时登录工作区并在登录完成后保存账号。
 
   codex-workspaces rename <旧工作区名> <新工作区名>
       重命名工作区；如果重命名当前工作区，会同步更新当前链接。
@@ -1476,6 +1859,7 @@ def usage(lang: str) -> str:
   CODEX_QUIT_TIMEOUT    等待 App 退出秒数，默认 20
   CODEX_WORKSPACES_LINK   当前工作区链接，默认 ~/.codex
   CODEX_WORKSPACES_ROOT   管理根目录，默认 ~/.codex-workspaces
+  CODEX_WORKSPACES_RESTORE_POLICY  进入工作区时账号恢复策略: workspace-default、last-active、keep-current
   CODEX_WORKSPACES_LANG   强制提示语言，可设为 zh 或 en"""
 
     return """codex-workspaces - Codex multi-workspace switcher
@@ -1493,8 +1877,11 @@ Usage:
   codex-workspaces current
       Show where ~/.codex currently points.
 
+  codex-workspaces info <workspace>
+      Show one workspace's path, size, note, default account, active account, and last-used time.
+
   codex-workspaces doctor
-      Print path, platform, app-control, and current workspace diagnostics.
+      Print path, platform, app-control, current workspace, and account diagnostics.
 
   codex-workspaces stats [workspace] [--days days]
       Read local Codex state_*.sqlite in read-only mode and summarize token usage.
@@ -1527,15 +1914,18 @@ Usage:
   codex-workspaces accounts info <account>
   codex-workspaces accounts init <account>
   codex-workspaces accounts save <account>
+  codex-workspaces accounts add <account> --login [--timeout seconds] [--keep-temp]
+  codex-workspaces accounts login-temp <account>
   codex-workspaces accounts use <account>
   codex-workspaces accounts restore-default [workspace]
   codex-workspaces accounts set-default <workspace> <account> [--activate]
   codex-workspaces accounts rename <old-account> <new-account>
   codex-workspaces accounts delete <account> --force
   codex-workspaces accounts note <account> [note text|--clear]
+  codex-workspaces accounts cleanup-login-temp
   codex-workspaces accounts import-workspaces
   codex-workspaces accounts import-legacy <legacy-accounts-dir>
-      Manage auth.json account snapshots. accounts use is temporary and does not change the workspace default account.
+      Manage auth.json account snapshots. accounts add --login creates a temporary login workspace and saves the account after login.
 
   codex-workspaces rename <old-workspace> <new-workspace>
       Rename a workspace. If it is active, the active link is updated.
@@ -1557,4 +1947,5 @@ Environment variables:
   CODEX_QUIT_TIMEOUT    Seconds to wait for app exit, default: 20
   CODEX_WORKSPACES_LINK   Active workspace link, default: ~/.codex
   CODEX_WORKSPACES_ROOT   Managed root directory, default: ~/.codex-workspaces
+  CODEX_WORKSPACES_RESTORE_POLICY  Account restore policy: workspace-default, last-active, keep-current
   CODEX_WORKSPACES_LANG   Force output language: zh or en"""

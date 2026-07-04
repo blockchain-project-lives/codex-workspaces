@@ -6,8 +6,8 @@
 
 - 文件系统行为：初始化统一目录工作区、切换链接、拒绝覆盖真实目录。
 - CLI 行为：命令别名、工作区名快捷切换、错误路径、帮助输出。
-- 管理行为：诊断、列表元信息、重命名、删除保护、备注读写和账号绑定。
-- 账号行为：账号快照保存、列表、备注、重命名、删除保护、临时切换、默认账号恢复、默认账号设置。
+- 管理行为：诊断、列表元信息、工作区详情、重命名、删除保护、备注读写和账号绑定。
+- 账号行为：账号快照保存、列表/详情增强、备注、重命名、删除保护、临时切换、login-temp 新增账号、默认账号恢复、默认账号设置。
 - 迁移行为：旧 `~/.codex-<name>` 工作区迁移、旧 `~/.codex-accounts` 导入、dry-run 不落盘、迁移前备份。
 - 统计行为：只读 `state_*.sqlite`，汇总 token、模型、最近会话和每日用量。
 - 平台行为：macOS App 控制可注入，非 macOS 自动跳过 App 启停，Codex 内置 Terminal 阻止或转交危险操作。
@@ -69,6 +69,10 @@ codex-workspaces current
 
 CODEX_WORKSPACES_LINK="$tmp_home/.codex" \
 CODEX_WORKSPACES_ROOT="$tmp_home/.codex-workspaces" \
+codex-workspaces info personal
+
+CODEX_WORKSPACES_LINK="$tmp_home/.codex" \
+CODEX_WORKSPACES_ROOT="$tmp_home/.codex-workspaces" \
 codex-workspaces doctor
 
 # 如果该工作区已有 Codex state_*.sqlite，可验证 stats:
@@ -89,6 +93,15 @@ codex-workspaces accounts set-default personal acct_personal --activate
 CODEX_WORKSPACES_LINK="$tmp_home/.codex" \
 CODEX_WORKSPACES_ROOT="$tmp_home/.codex-workspaces" \
 codex-workspaces accounts list
+
+CODEX_WORKSPACES_LINK="$tmp_home/.codex" \
+CODEX_WORKSPACES_ROOT="$tmp_home/.codex-workspaces" \
+codex-workspaces accounts info personal
+
+# 新账号登录流程会切到临时 login-research 工作区，登录完成后恢复原工作区。
+# CODEX_WORKSPACES_LINK="$tmp_home/.codex" \
+# CODEX_WORKSPACES_ROOT="$tmp_home/.codex-workspaces" \
+# codex-workspaces accounts add research --login
 
 CODEX_WORKSPACES_LINK="$tmp_home/.codex" \
 CODEX_WORKSPACES_ROOT="$tmp_home/.codex-workspaces" \
@@ -128,6 +141,7 @@ HOME="$tmp_home" codex-workspaces accounts list
 - `~/.codex` 指向新的 `workspaces/work`。
 - `~/.codex-work` 和 `~/.codex-accounts` 仍保留。
 - `~/.codex-workspaces/backups/<timestamp>/before-migrate/` 下有迁移前备份。
+- `migrate` 最后输出迁移报告，包含 migrated/skipped/renamed-conflict/special-file-skipped 摘要。
 
 macOS 上再额外验证：
 

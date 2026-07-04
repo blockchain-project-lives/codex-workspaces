@@ -49,8 +49,11 @@ class TestCliDispatch:
         run(["init", "work"], manager)
         run(["switch", "work", "--no-stop", "--no-start"], manager)
         assert run(["current"], manager) == 0
+        assert run(["info", "work"], manager) == 0
 
-        assert "work ->" in manager.stdout.getvalue()
+        output = manager.stdout.getvalue()
+        assert "work ->" in output
+        assert "Workspace: work" in output
 
     def test_unknown_command_raises_expected_error(self, tmp_path: Path) -> None:
         manager = manager_for(tmp_path)
@@ -108,11 +111,13 @@ class TestCliDispatch:
         assert run(["accounts", "set-default", "work", "work", "--activate"], manager) == 0
         assert run(["accounts", "current"], manager) == 0
         assert run(["accounts", "list"], manager) == 0
+        assert run(["accounts", "info", "work"], manager) == 0
         assert run(["accounts", "restore-default"], manager) == 0
 
         output = manager.stdout.getvalue()
         assert "acct_work" in output
         assert "active=acct_work default=acct_work" in output
+        assert "auth_exists: yes" in output
 
     def test_account_lifecycle_dispatches(self, tmp_path: Path) -> None:
         manager = manager_for(tmp_path)
@@ -144,5 +149,5 @@ class TestCliDispatch:
 
         output = manager.stdout.getvalue()
         assert "Migration plan" in output
-        assert "Migrated workspaces: 1" in output
+        assert "migrated workspaces: 1" in output
         assert "Imported legacy accounts: 1" in output

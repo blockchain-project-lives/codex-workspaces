@@ -80,10 +80,11 @@ Windows：
 ## 安全设计
 
 - 如果 `~/.codex` 存在且不是链接，`switch` 拒绝执行，避免覆盖真实目录。
-- 旧 `~/.codex-<name>` 工作区迁移和旧 `~/.codex-accounts` 导入已支持；login-temp 登录流程仍留到后续阶段。
+- 旧 `~/.codex-<name>` 工作区迁移和旧 `~/.codex-accounts` 导入已支持。
+- `accounts add <account> --login` 使用临时 `login-<account>` 工作区登录新账号，保存账号快照后恢复原工作区。
 - 切换 workspace 前会保存当前 live `auth.json` 到 `active_account_id` 对应账号快照。
 - `accounts use` 只修改当前 workspace 的 `active_account_id`，不修改 `default_account_id`。
-- 进入 workspace 时默认恢复该 workspace 的默认账号。
+- 进入 workspace 时按策略恢复账号：`workspace-default` 恢复默认账号，`last-active` 恢复该 workspace 上次活跃账号，`keep-current` 尽量沿用刚才正在使用的账号。
 - `migrate --dry-run` 只打印计划，不创建目录、不写元数据。
 - `migrate` 会先备份当前 `~/.codex`、旧 workspace 和旧账号目录，再复制到统一目录；旧目录不会被自动删除。
 - 如果当前 `~/.codex` 是真实目录，批量 `migrate` 会拒绝覆盖；应使用 `init <name> --migrate-current` 显式迁移当前目录。
@@ -97,13 +98,18 @@ Windows：
 
 工作区相关环境变量：
 
-- 变量：`CODEX_WORKSPACES_ROOT`、`CODEX_WORKSPACES_LINK`、`CODEX_WORKSPACES_WORKSPACES_DIR`、`CODEX_WORKSPACES_ACCOUNTS_DIR`、`CODEX_WORKSPACES_LANG`。
+- 变量：`CODEX_WORKSPACES_ROOT`、`CODEX_WORKSPACES_LINK`、`CODEX_WORKSPACES_WORKSPACES_DIR`、`CODEX_WORKSPACES_ACCOUNTS_DIR`、`CODEX_WORKSPACES_RESTORE_POLICY`、`CODEX_WORKSPACES_LANG`。
+- `CODEX_WORKSPACES_RESTORE_POLICY` 可选 `workspace-default`、`last-active`、`keep-current`；无效值回退到 `workspace-default`。
 
 迁移相关命令：
 
 - `codex-workspaces migrate --dry-run`
 - `codex-workspaces migrate [--from-prefix ~/.codex-] [--from-accounts ~/.codex-accounts]`
 - `codex-workspaces init <workspace> --migrate-current`
+- `codex-workspaces info <workspace>`
+- `codex-workspaces accounts add <account> --login`
+- `codex-workspaces accounts login-temp <account>`
+- `codex-workspaces accounts cleanup-login-temp`
 - `codex-workspaces accounts import-workspaces`
 - `codex-workspaces accounts import-legacy <legacy_accounts_dir>`
 

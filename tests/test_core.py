@@ -67,7 +67,7 @@ class StubbornMacPlatform(SystemPlatform):
         return True
 
 
-def make_config(tmp_path: Path, lang: str = "en") -> Config:
+def make_config(tmp_path: Path, lang: str = "en", restore_policy: str = "workspace-default") -> Config:
     home = tmp_path / "home"
     home.mkdir()
     root = home / ".codex-workspaces"
@@ -85,14 +85,15 @@ def make_config(tmp_path: Path, lang: str = "en") -> Config:
         workspace_prefix=str(workspaces) + "/",
         quit_timeout=20,
         lang=lang,
+        restore_policy=restore_policy,
     )
 
 
-def make_manager(tmp_path: Path, platform: FakePlatform | None = None, lang: str = "en"):
+def make_manager(tmp_path: Path, platform: FakePlatform | None = None, lang: str = "en", restore_policy: str = "workspace-default"):
     stdout = io.StringIO()
     stderr = io.StringIO()
     manager = WorkspaceManager(
-        make_config(tmp_path, lang=lang),
+        make_config(tmp_path, lang=lang, restore_policy=restore_policy),
         platform or FakePlatform(),
         stdout,
         stderr,
@@ -430,7 +431,135 @@ class TestWorkspaceManager:
         assert "acct_personal" in output
         assert "workspace-default" in output
         assert "work" in output
+        assert "auth" in output.lower()
+        assert "default+active" in output
         assert "*" in output
+
+        stdout.seek(0)
+        stdout.truncate(0)
+        manager.accounts_info("acct_work")
+        info_output = stdout.getvalue()
+        assert "Account: acct_work" in info_output
+        assert "auth_exists: yes" in info_output
+        assert "default_workspaces: work" in info_output
+        assert "auth_hash: sha256:" in info_output
+
+    def test_restore_policy_last_active_keeps_workspace_active_account(self, tmp_path: Path) -> None:
+        manager, _, _ = make_manager(tmp_path, restore_policy="last-active")
+        manager.init_workspace("work", [])
+        manager.init_workspace("personal", [])
+
+        manager.switch_workspace("work", ["--no-stop", "--no-start"], ["switch", "work"])
+        (manager.workspace_dir("work") / "auth.json").write_text('{"account":"work"}\n', encoding="utf-8")
+        manager.accounts_save("work")
+        manager.accounts_set_default("work", "work", activate=True)
+
+        manager.switch_workspace("personal", ["--no-stop", "--no-start"], ["switch", "personal"])
+        (manager.workspace_dir("personal") / "auth.json").write_text('{"account":"personal"}\n', encoding="utf-8")
+        manager.accounts_save("personal")
+        manager.accounts_set_default("personal", "personal", activate=True)
+
+        manager.switch_workspace("work", ["--no-stop", "--no-start"], ["switch", "work"])
+        manager.accounts_use("personal")
+        manager.switch_workspace("personal", ["--no-stop", "--no-start"], ["switch", "personal"])
+        manager.switch_workspace("work", ["--no-stop", "--no-start"], ["switch", "work"])
+
+        meta = manager.store.read_workspace_meta(manager.workspace_dir("work"), "work")
+        assert meta.default_account_id == "acct_work"
+        assert meta.active_account_id == "acct_personal"
+        assert (manager.workspace_dir("work") / "auth.json").read_text(encoding="utf-8") == '{"account":"personal"}\n'
+
+    def test_restore_policy_keep_current_carries_previous_account(self, tmp_path: Path) -> None:
+        manager, _, _ = make_manager(tmp_path, restore_policy="keep-current")
+        manager.init_workspace("work", [])
+        manager.init_workspace("personal", [])
+
+        manager.switch_workspace("work", ["--no-stop", "--no-start"], ["switch", "work"])
+        (manager.workspace_dir("work") / "auth.json").write_text('{"account":"work"}\n', encoding="utf-8")
+        manager.accounts_save("work")
+        manager.accounts_set_default("work", "work", activate=True)
+
+        manager.switch_workspace("personal", ["--no-stop", "--no-start"], ["switch", "personal"])
+        (manager.workspace_dir("personal") / "auth.json").write_text('{"account":"personal"}\n', encoding="utf-8")
+        manager.accounts_save("personal")
+        manager.accounts_set_default("personal", "personal", activate=True)
+
+        manager.switch_workspace("work", ["--no-stop", "--no-start"], ["switch", "work"])
+
+        meta = manager.store.read_workspace_meta(manager.workspace_dir("work"), "work")
+        assert meta.default_account_id == "acct_work"
+        assert meta.active_account_id == "acct_personal"
+        assert (manager.workspace_dir("work") / "auth.json").read_text(encoding="utf-8") == '{"account":"personal"}\n'
+
+    def test_workspace_info_shows_metadata(self, tmp_path: Path) -> None:
+        manager, stdout, _ = make_manager(tmp_path)
+        manager.init_workspace("work", [])
+        manager.note_workspace("work", ["main", "workspace"])
+        manager.switch_workspace("work", ["--no-stop", "--no-start"], ["switch", "work"])
+
+        manager.workspace_info("work")
+
+        output = stdout.getvalue()
+        assert "Workspace: work" in output
+        assert "active: yes" in output
+        assert "note: main workspace" in output
+        assert "last_used_at:" in output
+
+    def test_accounts_add_login_temp_saves_account_and_restores_workspace(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        manager, stdout, _ = make_manager(tmp_path, FakePlatform(app_control=True))
+        manager.init_workspace("work", [])
+        manager.switch_workspace("work", ["--no-stop", "--no-start"], ["switch", "work"])
+        (manager.workspace_dir("work") / "auth.json").write_text('{"account":"work"}\n', encoding="utf-8")
+        manager.accounts_save("work")
+        manager.accounts_set_default("work", "work", activate=True)
+
+        def fake_start_codex() -> None:
+            current = manager.current_target()
+            if current.kind == "target" and current.path is not None:
+                name = manager.current_name(current.path) or ""
+                if name.startswith("login-"):
+                    (current.path / "auth.json").write_text('{"account":"research"}\n', encoding="utf-8")
+
+        monkeypatch.setattr(manager, "start_codex", fake_start_codex)
+
+        manager.accounts_add("research", ["--login"])
+
+        assert manager.store.account_auth_path("acct_research").read_text(encoding="utf-8") == '{"account":"research"}\n'
+        assert manager.current_name(manager.current_target().path) == "work"
+        assert not manager.workspace_dir("login-research").exists()
+        assert (manager.workspace_dir("work") / "auth.json").read_text(encoding="utf-8") == '{"account":"work"}\n'
+        assert "Added account: acct_research" in stdout.getvalue()
+
+    def test_accounts_list_marks_orphans_and_active_only(self, tmp_path: Path) -> None:
+        manager, stdout, _ = make_manager(tmp_path)
+        manager.init_workspace("work", [])
+        manager.switch_workspace("work", ["--no-stop", "--no-start"], ["switch", "work"])
+        (manager.workspace_dir("work") / "auth.json").write_text('{"account":"work"}\n', encoding="utf-8")
+        manager.accounts_save("work")
+        manager.store.create_account("acct_orphan", name="orphan", source="standalone", bound_workspace=None, auth_source=None)
+        manual_auth = tmp_path / "manual-auth.json"
+        manual_auth.write_text('{"account":"manual"}\n', encoding="utf-8")
+        manager.store.create_account("acct_manual", name="manual", source="manual", bound_workspace=None, auth_source=manual_auth)
+        manager.accounts_use("manual")
+
+        manager.accounts_list()
+
+        output = stdout.getvalue()
+        assert "active-only" in output
+        assert "orphan" in output
+        assert "acct_orphan" in output
+
+    def test_doctor_reports_account_diagnostics(self, tmp_path: Path) -> None:
+        manager, stdout, _ = make_manager(tmp_path)
+        manager.init_workspace("work", [])
+        (manager.workspace_dir("work") / "auth.json").write_text('{"account":"work"}\n', encoding="utf-8")
+        manager.store.create_account("acct_orphan", name="orphan", source="standalone", bound_workspace=None, auth_source=None)
+
+        manager.doctor()
+
+        output = stdout.getvalue()
+        assert "workspace work has auth.json but no default account" in output
+        assert "account acct_orphan is not referenced by any workspace" in output
 
     def test_accounts_restore_default_requires_default_account(self, tmp_path: Path) -> None:
         manager, _, _ = make_manager(tmp_path)
@@ -500,7 +629,8 @@ class TestWorkspaceManager:
         assert manager.store.read_account_meta("acct_work").source == "workspace-default"
         assert manager.store.account_auth_path("acct_work").read_text(encoding="utf-8") == '{"account":"work"}\n'
         assert any(manager.config.backups_dir.glob("*/before-migrate/legacy-workspaces/.codex-work/auth.json"))
-        assert "Migrated workspaces: 2" in stdout.getvalue()
+        assert "Migration report:" in stdout.getvalue()
+        assert "migrated workspaces: 2" in stdout.getvalue()
 
     def test_migrate_skips_unsupported_special_files(self, tmp_path: Path) -> None:
         if not hasattr(os, "mkfifo"):
@@ -515,6 +645,7 @@ class TestWorkspaceManager:
 
         output = stdout.getvalue()
         assert "Skipping unsupported special file" in output
+        assert "special files skipped: 2" in output
         assert manager.workspace_dir("work").is_dir()
         assert not (manager.workspace_dir("work") / "fsmonitor--daemon.ipc").exists()
         assert manager.store.account_auth_path("acct_work").is_file()

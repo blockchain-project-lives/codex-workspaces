@@ -17,7 +17,9 @@
 - 管理 `~/.codex-workspaces/accounts/` 下的账号快照。
 - 切换当前 `~/.codex` 软链接或目录链接。
 - 初始化带元数据的工作区目录。
+- 通过隔离的临时登录工作区执行 `accounts add --login`，新增账号而不退出当前账号。
 - 通过 `accounts use` 临时切换当前工作区账号，并可恢复工作区默认账号。
+- 查看工作区/账号元数据，并通过 `doctor` 做账号诊断。
 - 迁移旧版 `~/.codex-<name>` 工作区，并导入旧 `~/.codex-accounts` 账号快照。
 - 保留 macOS 上 Codex App 的 `stop`、`start`、`restart`。
 - 以只读方式读取 Codex `state_*.sqlite`，展示本地 token 用量统计。
@@ -121,6 +123,14 @@ codex-workspaces accounts init research
 codex-workspaces accounts save research
 ```
 
+如果要新增账号，但不想退出当前工作区账号，可以用临时登录工作区：
+
+```bash
+codex-workspaces accounts add research --login
+```
+
+它会把 `~/.codex` 临时切到 `login-<账号>` 工作区，让你登录新账号；登录生成 `auth.json` 后保存为 `acct_<账号>`，再恢复原工作区。如果登录中断，可用 `codex-workspaces accounts cleanup-login-temp` 清理残留临时工作区。
+
 导入旧 `codex-accounts` 的 AUTH 模式账号快照：
 
 ```bash
@@ -146,6 +156,7 @@ codex-workspaces work --no-stop --no-start
 ```bash
 codex-workspaces list
 codex-workspaces current
+codex-workspaces info work
 codex-workspaces doctor
 codex-workspaces stats
 codex-workspaces stats work --days 14
@@ -158,7 +169,7 @@ codex-workspaces accounts use acct_personal
 codex-workspaces accounts restore-default
 ```
 
-`accounts use` 只修改当前工作区的 `active_account_id`，不会修改 `default_account_id`。执行 `codex-workspaces use <工作区>` 进入某个工作区时，如果配置了默认账号，会恢复该工作区默认账号。
+`accounts use` 只修改当前工作区的 `active_account_id`，不会修改 `default_account_id`。进入工作区时按 `CODEX_WORKSPACES_RESTORE_POLICY` 恢复账号：`workspace-default` 恢复工作区默认账号，`last-active` 恢复该工作区上次活跃账号，`keep-current` 尽量沿用刚才正在使用的账号。
 
 `auth.json` 包含认证凭据，不要提交到 git。工作区目录、账号快照、SQLite 状态、sessions 和 shell snapshots 已在本项目 `.gitignore` 中排除。
 
@@ -166,6 +177,7 @@ codex-workspaces accounts restore-default
 
 ```bash
 codex-workspaces accounts note acct_research "实验室账号"
+codex-workspaces accounts info acct_research
 codex-workspaces accounts rename acct_research acct_lab
 codex-workspaces accounts delete acct_lab --force
 ```
@@ -198,6 +210,7 @@ codex-workspaces restart
 | `CODEX_QUIT_TIMEOUT` | `20` | 等待 App 退出的秒数。 |
 | `CODEX_WORKSPACES_LINK` | `$HOME/.codex` | 当前工作区链接路径。 |
 | `CODEX_WORKSPACES_ROOT` | `$HOME/.codex-workspaces` | workspaces、accounts、backups 和 lock 所在管理根目录。 |
+| `CODEX_WORKSPACES_RESTORE_POLICY` | `workspace-default` | 进入工作区时的账号恢复策略：`workspace-default`、`last-active` 或 `keep-current`。 |
 | `CODEX_WORKSPACES_LANG` | 自动 | 强制输出语言，可设为 `en` 或 `zh`。 |
 
 工作区相关配置只使用 `CODEX_WORKSPACES_*` 变量。

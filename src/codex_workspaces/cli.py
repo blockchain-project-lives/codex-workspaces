@@ -27,6 +27,14 @@ def run(argv: Sequence[str], manager: WorkspaceManager) -> int:
     if command in {"current", "whoami"}:
         manager.show_current()
         return 0
+    if command == "info":
+        if len(args) != 1:
+            manager.fail(
+                "用法: codex-workspaces info <工作区名>",
+                "Usage: codex-workspaces info <workspace>",
+            )
+        manager.workspace_info(args[0])
+        return 0
     if command in {"doctor", "diagnose"}:
         manager.doctor()
         return 0
@@ -200,6 +208,25 @@ def run_accounts(args: Sequence[str], manager: WorkspaceManager) -> int:
             )
         manager.accounts_save(rest[0])
         return 0
+    if command == "add":
+        if not rest:
+            manager.fail(
+                "用法: codex-workspaces accounts add <账号> --login",
+                "Usage: codex-workspaces accounts add <account> --login",
+            )
+        manager.accounts_add(rest[0], rest[1:])
+        return 0
+    if command == "login-temp":
+        if not rest:
+            manager.fail(
+                "用法: codex-workspaces accounts login-temp <账号>",
+                "Usage: codex-workspaces accounts login-temp <account>",
+            )
+        manager.accounts_add(rest[0], ["--login", *rest[1:]])
+        return 0
+    if command == "cleanup-login-temp":
+        manager.accounts_cleanup_login_temp(rest)
+        return 0
     if command == "use":
         if len(rest) != 1:
             manager.fail(
@@ -268,11 +295,6 @@ def run_accounts(args: Sequence[str], manager: WorkspaceManager) -> int:
             )
         manager.accounts_import_legacy(rest[0])
         return 0
-    if command in {"add", "cleanup-login-temp"}:
-        manager.fail(
-            f"accounts {command} 依赖 login-temp 登录流程，仍留到后续阶段。",
-            f"accounts {command} depends on the login-temp flow and is still deferred to a later phase.",
-        )
     manager.fail(f"未知 accounts 命令: {command}", f"Unknown accounts command: {command}")
     return 1
 

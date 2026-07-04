@@ -6,6 +6,9 @@ from pathlib import Path
 from typing import Mapping, Optional
 
 
+RESTORE_POLICIES = {"workspace-default", "last-active", "keep-current"}
+
+
 def _looks_zh(value: str) -> bool:
     return value.lower().replace("_", "-").startswith("zh")
 
@@ -50,6 +53,7 @@ class Config:
     workspace_prefix: str
     quit_timeout: int
     lang: str
+    restore_policy: str = "workspace-default"
 
     @classmethod
     def from_env(
@@ -86,6 +90,9 @@ class Config:
         lock_file = root_dir / "lock"
         workspace_prefix = str(workspaces_dir) + os.sep
         quit_timeout = int(env.get("CODEX_QUIT_TIMEOUT") or "20")
+        restore_policy = env.get("CODEX_WORKSPACES_RESTORE_POLICY") or "workspace-default"
+        if restore_policy not in RESTORE_POLICIES:
+            restore_policy = "workspace-default"
 
         return cls(
             app_name=env.get("CODEX_APP_NAME") or "Codex",
@@ -99,4 +106,5 @@ class Config:
             workspace_prefix=workspace_prefix,
             quit_timeout=quit_timeout,
             lang=detect_ui_lang(env, apple_language),
+            restore_policy=restore_policy,
         )

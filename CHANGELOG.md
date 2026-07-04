@@ -4,6 +4,22 @@ All notable changes to `codex-workspaces` will be documented in this file.
 
 This project follows a simple changelog format while it is still pre-release.
 
+## 0.3.1 - 2026-07-04
+
+### Added
+
+- Added `accounts add <account> --login` and `accounts login-temp <account>` to create an isolated temporary login workspace, save the new auth snapshot, and restore the previous workspace.
+- Added `accounts cleanup-login-temp` for stale temporary login workspaces.
+- Added enhanced `accounts list` and `accounts info` output with auth status, current/default markers, workspace references, orphan/active-only status, notes, paths, and auth hashes.
+- Added account-focused `doctor` checks for missing account references, workspace auth without defaults, orphan accounts, permission issues, and legacy directory leftovers.
+- Added final migration report summaries for migrated workspaces, created accounts, imported accounts, renamed account conflicts, and skipped special files.
+- Added `codex-workspaces info <workspace>` for workspace metadata inspection.
+- Added `CODEX_WORKSPACES_RESTORE_POLICY` with `workspace-default`, `last-active`, and `keep-current`.
+
+### Changed
+
+- Updated README, design, testing, and release docs for the 0.3.1 account and restore-policy workflow.
+
 ## 0.3.0 - 2026-07-04
 
 ### Added
@@ -40,7 +56,7 @@ This project follows a simple changelog format while it is still pre-release.
 - Delegates stop, switch, and restart commands to Terminal.app when they are run from a detected Codex terminal environment.
 - Refuses start and migration commands when they are run from a detected Codex terminal environment.
 - Backs up legacy workspace/account sources before migration and never deletes old directories automatically.
-- Keeps login-temp account login flows deferred instead of mixing interactive login into migration.
+- Keeps migration non-interactive; new account login is handled separately through the login-temp workflow.
 - Saves live `auth.json` before account or workspace switches when an active account is configured.
 - Uses a lock file under `~/.codex-workspaces/lock` for account and workspace switching.
 - Limits workspace names to letters, numbers, dots, underscores, and hyphens.

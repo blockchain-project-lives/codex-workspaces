@@ -17,7 +17,9 @@ On macOS, the Python CLI preserves the original app workflow: stop Codex App, sw
 - Manage account snapshots under `~/.codex-workspaces/accounts/`.
 - Switch the active `~/.codex` symlink or directory link.
 - Initialize workspace directories with metadata.
+- Add a new account through an isolated temporary login workspace with `accounts add --login`.
 - Temporarily switch the current workspace account with `accounts use`, then restore the workspace default account.
+- Inspect workspace/account metadata and run account-focused `doctor` diagnostics.
 - Migrate older `~/.codex-<name>` workspaces and import legacy `~/.codex-accounts` auth snapshots.
 - Keep macOS Codex App stop/start/restart support.
 - Show local token usage stats from Codex `state_*.sqlite` in read-only mode.
@@ -121,6 +123,14 @@ codex-workspaces accounts init research
 codex-workspaces accounts save research
 ```
 
+To add a new account without logging out of the current workspace account, use a temporary login workspace:
+
+```bash
+codex-workspaces accounts add research --login
+```
+
+This switches `~/.codex` to a temporary `login-<account>` workspace, lets you log in, saves the generated `auth.json` as `acct_<account>`, and restores the previous workspace. If login is interrupted, clean stale temporary workspaces with `codex-workspaces accounts cleanup-login-temp`.
+
 Import legacy `codex-accounts` AUTH-mode snapshots:
 
 ```bash
@@ -146,6 +156,7 @@ Inspect workspaces:
 ```bash
 codex-workspaces list
 codex-workspaces current
+codex-workspaces info work
 codex-workspaces doctor
 codex-workspaces stats
 codex-workspaces stats work --days 14
@@ -158,7 +169,7 @@ codex-workspaces accounts use acct_personal
 codex-workspaces accounts restore-default
 ```
 
-`accounts use` only changes the current workspace `active_account_id`; it does not change `default_account_id`. Entering a workspace with `codex-workspaces use <workspace>` restores that workspace's default account when one is configured.
+`accounts use` only changes the current workspace `active_account_id`; it does not change `default_account_id`. Entering a workspace uses `CODEX_WORKSPACES_RESTORE_POLICY`: `workspace-default` restores the workspace default account, `last-active` restores that workspace's last active account, and `keep-current` keeps the account you were just using when possible.
 
 `auth.json` contains credentials. Do not commit workspace directories, account snapshots, SQLite state, sessions, or shell snapshots to git; the project `.gitignore` excludes these patterns for local checkouts.
 
@@ -166,6 +177,7 @@ Manage account metadata and snapshots:
 
 ```bash
 codex-workspaces accounts note acct_research "lab account"
+codex-workspaces accounts info acct_research
 codex-workspaces accounts rename acct_research acct_lab
 codex-workspaces accounts delete acct_lab --force
 ```
@@ -198,6 +210,7 @@ codex-workspaces restart
 | `CODEX_QUIT_TIMEOUT` | `20` | Seconds to wait for app exit. |
 | `CODEX_WORKSPACES_LINK` | `$HOME/.codex` | Active workspace link path. |
 | `CODEX_WORKSPACES_ROOT` | `$HOME/.codex-workspaces` | Managed root for workspaces, accounts, backups, and lock file. |
+| `CODEX_WORKSPACES_RESTORE_POLICY` | `workspace-default` | Account restore policy when entering a workspace: `workspace-default`, `last-active`, or `keep-current`. |
 | `CODEX_WORKSPACES_LANG` | auto | Force output language with `en` or `zh`. |
 
 Only the `CODEX_WORKSPACES_*` variables are used for workspace-specific configuration.

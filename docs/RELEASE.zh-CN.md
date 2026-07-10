@@ -88,9 +88,9 @@ permissions:
 1. 更新版本号和 `CHANGELOG.md`。
 2. 本地执行测试和构建检查。
 3. 合并到 `main`。
-4. 创建 Git tag，例如 `v0.3.6`，触发 `Publish to TestPyPI`。
+4. 创建 Git tag，例如 `v0.3.7`，触发 `Publish to TestPyPI`。
 5. 确认 TestPyPI 上传和安装正常。
-6. 从同一个提交创建并推送正式发布分支，例如 `release/v0.3.6`，触发 `Publish to PyPI`。
+6. 从同一个提交创建并推送正式发布分支，例如 `release/v0.3.7`，触发 `Publish to PyPI`。
 7. 如果 `pypi` Environment 配置了 Required reviewers，在 GitHub Actions 里批准部署。
 8. 在 PyPI 页面确认 wheel、sdist 和 README 渲染正常。
 

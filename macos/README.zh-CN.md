@@ -24,7 +24,7 @@
 
 - macOS。
 - Bash。
-- 已安装 Codex 桌面 App，默认 App 名称为 `Codex`。
+- 已安装 OpenAI 桌面 App，当前通常叫 `ChatGPT`，旧版本也可能还是 `Codex`。
 
 如果你的 App 名称不同，可以设置 `CODEX_APP_NAME`。
 
@@ -141,7 +141,7 @@ codex-workspaces personal --no-start
 codex-workspaces work --no-stop
 ```
 
-如果 Codex 在超时前没有退出，则强制关闭：
+如果 Codex 在 5 秒内没有退出，则强制关闭：
 
 ```bash
 codex-workspaces work --force
@@ -165,7 +165,7 @@ codex-workspaces help
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `CODEX_APP_NAME` | `Codex` | 要关闭/启动的 macOS App 名称。 |
+| `CODEX_APP_NAME` | 自动检测（优先 `ChatGPT`，回退 `Codex`） | 要关闭/启动的 macOS App 名称。 |
 | `CODEX_QUIT_TIMEOUT` | `20` | 等待 App 退出的秒数。 |
 | `CODEX_WORKSPACES_LINK` | `$HOME/.codex` | 当前工作区软链接路径。 |
 | `CODEX_WORKSPACES_PREFIX` | `$HOME/.codex-` | 工作区目录前缀。 |

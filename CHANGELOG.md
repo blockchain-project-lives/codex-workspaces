@@ -4,6 +4,18 @@ All notable changes to `codex-workspaces` will be documented in this file.
 
 This project follows a simple changelog format while it is still pre-release.
 
+## 0.3.7 - 2026-07-10
+
+### Changed
+
+- Default desktop app detection now prefers `ChatGPT` and falls back to the older `Codex` name for both the Python CLI and the preserved macOS shell script.
+- Updated release and user docs to describe the new `ChatGPT` desktop app naming and `CODEX_APP_NAME` auto-detection behavior.
+
+### Fixed
+
+- Fixed macOS app stop/start/restart flows after the Codex desktop app was renamed to `ChatGPT`.
+- Fixed forced app shutdown so `stop --force` and `restart --force` escalate to a hard kill after 5 seconds instead of waiting the full graceful timeout.
+
 ## 0.3.6 - 2026-07-07
 
 ### Added

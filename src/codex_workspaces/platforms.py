@@ -35,7 +35,8 @@ CODEX_DELEGATE_UNSET_ENV = (
     "__CFBundleIdentifier",
 )
 
-FORCE_QUIT_GRACE_SECONDS = 15
+FORCE_QUIT_GRACE_SECONDS = 5
+DEFAULT_APP_NAME_ALIASES = ("ChatGPT", "Codex")
 
 
 @dataclass(frozen=True)
@@ -146,19 +147,37 @@ class SystemPlatform:
         if not self.is_macos:
             processes = self.app_processes(app_name)
             return None if processes is None else bool(processes)
+        running_name = self.macos_running_app_name(app_name)
+        if running_name is None:
+            return None
+        return bool(running_name)
+
+    def app_name_candidates(self, app_name: str) -> list[str]:
+        candidates = [app_name]
+        if app_name.lower() in {name.lower() for name in DEFAULT_APP_NAME_ALIASES}:
+            for alias in DEFAULT_APP_NAME_ALIASES:
+                if alias.lower() != app_name.lower():
+                    candidates.append(alias)
+        return candidates
+
+    def macos_running_app_name(self, app_name: str) -> Optional[str]:
         if shutil.which("pgrep") is None:
             return None
-        result = subprocess.run(
-            ["pgrep", "-x", app_name],
-            check=False,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        if result.returncode == 0:
-            return True
-        if result.returncode == 1:
-            return False
-        return None
+        saw_error = False
+        for candidate in self.app_name_candidates(app_name):
+            result = subprocess.run(
+                ["pgrep", "-x", candidate],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            if result.returncode == 0:
+                return candidate
+            if result.returncode not in {0, 1}:
+                saw_error = True
+        if saw_error:
+            return None
+        return ""
 
     def app_processes(self, app_name: str) -> Optional[list[AppProcess]]:
         if self.is_macos:
@@ -179,7 +198,7 @@ class SystemPlatform:
         if result.returncode != 0:
             return None
         processes: list[AppProcess] = []
-        app_key = app_name.lower()
+        app_keys = {candidate.lower() for candidate in self.app_name_candidates(app_name)}
         for line in result.stdout.splitlines():
             parts = line.strip().split(None, 2)
             if len(parts) < 2:
@@ -199,7 +218,7 @@ class SystemPlatform:
                 Path(command_head).name.lower(),
                 Path(command_head).stem.lower(),
             }
-            if app_key not in candidates:
+            if not (app_keys & candidates):
                 continue
             try:
                 command = shlex.split(command_line)
@@ -212,11 +231,14 @@ class SystemPlatform:
         powershell = shutil.which("powershell") or shutil.which("pwsh")
         if powershell is None:
             return None
-        safe_app_name = app_name.replace("'", "''")
+        alias_checks = []
+        for candidate in self.app_name_candidates(app_name):
+            safe_name = candidate.replace("'", "''")
+            alias_checks.append(f"$_.Name -ieq '{safe_name}'")
+            alias_checks.append(f"[IO.Path]::GetFileNameWithoutExtension($_.Name) -ieq '{safe_name}'")
         script = (
-            "$name = '" + safe_app_name + "'; "
             "Get-CimInstance Win32_Process | "
-            "Where-Object { $_.Name -ieq $name -or [IO.Path]::GetFileNameWithoutExtension($_.Name) -ieq $name } | "
+            "Where-Object { " + " -or ".join(alias_checks) + " } | "
             "Select-Object ProcessId,Name,ExecutablePath,CommandLine | ConvertTo-Json -Compress"
         )
         result = subprocess.run(
@@ -259,16 +281,16 @@ class SystemPlatform:
         if not self.is_macos:
             self.stop_process_app(app_name, timeout, force, stdout)
             return
-        running = self.app_running_status(app_name)
-        if running is False:
+        running_name = self.macos_running_app_name(app_name)
+        if running_name == "":
             print(f"{app_name} is not running.", file=stdout)
             return
-        if running is None:
+        if running_name is None:
             raise CodexWorkspacesError(f"Cannot confirm whether {app_name} is running.")
 
-        print(f"Quitting {app_name} ...", file=stdout)
+        print(f"Quitting {running_name} ...", file=stdout)
         subprocess.run(
-            ["osascript", "-e", f'tell application "{app_name}" to quit'],
+            ["osascript", "-e", f'tell application "{running_name}" to quit'],
             check=False,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -285,24 +307,27 @@ class SystemPlatform:
                 raise CodexWorkspacesError(
                     f"{app_name} did not exit within {timeout}s; add --force to force quit"
                 )
-            print(f"{app_name} did not exit within {wait_limit}s; forcing it to quit.", file=stdout)
-            subprocess.run(
-                ["killall", app_name],
-                check=False,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
+            print(f"{running_name} did not exit within {wait_limit}s; forcing it to quit.", file=stdout)
+            for candidate in self.app_name_candidates(app_name):
+                subprocess.run(
+                    ["killall", candidate],
+                    check=False,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
             time.sleep(1)
 
-        print(f"{app_name} has quit.", file=stdout)
+        print(f"{running_name} has quit.", file=stdout)
 
     def start_app(self, app_name: str) -> None:
         if not self.is_macos:
             self.start_process_app(app_name)
             return
-        result = subprocess.run(["open", "-a", app_name], check=False)
-        if result.returncode != 0:
-            raise CodexWorkspacesError(f"Could not start {app_name}.")
+        for candidate in self.app_name_candidates(app_name):
+            result = subprocess.run(["open", "-a", candidate], check=False)
+            if result.returncode == 0:
+                return
+        raise CodexWorkspacesError(f"Could not start {app_name}.")
 
     def stop_process_app(self, app_name: str, timeout: int, force: bool, stdout: TextIO) -> None:
         self._last_app_process = None

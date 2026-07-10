@@ -9,7 +9,7 @@
 - 跨平台 Python 3 CLI，支持 Linux、macOS 和 Windows。
 - 原来的 macOS Bash 脚本，仍保留在 [`codex-workspaces`](macos/codex-workspaces)，兼容已经使用 shell 安装方式的用户。
 
-在 macOS 上，Python CLI 保留原来的 App 流程：关闭 Codex App、切换工作区链接、再启动 Codex App。在 Linux 和 Windows 上，CLI 会先检查进程列表；如果找到正在运行的 Codex 进程，会记录进程命令、关闭进程、切换工作区链接、再恢复启动。找不到进程时才只切换工作区链接。
+在 macOS 上，Python CLI 保留原来的 App 流程：关闭桌面 App、切换工作区链接、再启动它。在 Linux 和 Windows 上，CLI 会先检查进程列表；如果找到正在运行的 App 进程，会记录进程命令、关闭进程、切换工作区链接、再恢复启动。找不到进程时才只切换工作区链接。
 
 ## 功能
 
@@ -310,8 +310,8 @@ codex-workspaces restart
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
-| `CODEX_APP_NAME` | `Codex` | macOS App 名称，也是 Linux/Windows 上匹配的进程名。 |
-| `CODEX_QUIT_TIMEOUT` | `20` | 等待 App 退出的秒数。 |
+| `CODEX_APP_NAME` | 自动检测（优先 `ChatGPT`，回退 `Codex`） | macOS App 名称，也是 Linux/Windows 上匹配的进程名。 |
+| `CODEX_QUIT_TIMEOUT` | `20` | 优雅等待 App 退出的秒数；`stop --force` / `restart --force` 会在 5 秒后升级为强制关闭。 |
 | `CODEX_WORKSPACES_LINK` | `$HOME/.codex` | 当前工作区链接路径。 |
 | `CODEX_WORKSPACES_ROOT` | `$HOME/.codex-workspaces` | workspaces、accounts、backups 和 lock 所在管理根目录。 |
 | `CODEX_WORKSPACES_RESTORE_POLICY` | `workspace-default` | 进入工作区时的账号恢复策略：`workspace-default`、`last-active` 或 `keep-current`。 |

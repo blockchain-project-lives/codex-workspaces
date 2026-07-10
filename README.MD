@@ -9,7 +9,7 @@ The project now has two entry points:
 - A cross-platform Python 3 CLI for Linux, macOS, and Windows.
 - The original macOS Bash script, still kept at [`macos/codex-workspaces`](macos/codex-workspaces), for users who installed the shell workflow directly.
 
-On macOS, the Python CLI preserves the original app workflow: stop Codex App, switch the workspace link, and start Codex App again. On Linux and Windows, the CLI checks the process list first; if Codex is running, it records the process command, stops it, switches the workspace link, and starts it again. If no process is found, it only switches the workspace link.
+On macOS, the Python CLI preserves the original app workflow: stop the desktop app, switch the workspace link, and start it again. On Linux and Windows, the CLI checks the process list first; if the app is running, it records the process command, stops it, switches the workspace link, and starts it again. If no process is found, it only switches the workspace link.
 
 ## Features
 
@@ -310,8 +310,8 @@ codex-workspaces restart
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `CODEX_APP_NAME` | `Codex` | macOS app name and Linux/Windows process name to control. |
-| `CODEX_QUIT_TIMEOUT` | `20` | Seconds to wait for app exit. |
+| `CODEX_APP_NAME` | auto-detect (`ChatGPT`, fallback `Codex`) | macOS app name and Linux/Windows process name to control. |
+| `CODEX_QUIT_TIMEOUT` | `20` | Seconds to wait for graceful app exit; `stop --force` / `restart --force` escalate after 5 seconds. |
 | `CODEX_WORKSPACES_LINK` | `$HOME/.codex` | Active workspace link path. |
 | `CODEX_WORKSPACES_ROOT` | `$HOME/.codex-workspaces` | Managed root for workspaces, accounts, backups, and lock file. |
 | `CODEX_WORKSPACES_RESTORE_POLICY` | `workspace-default` | Account restore policy when entering a workspace: `workspace-default`, `last-active`, or `keep-current`. |

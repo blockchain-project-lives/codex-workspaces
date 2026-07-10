@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from codex_workspaces.config import Config
+from codex_workspaces.config import Config, detect_default_app_name
 from codex_workspaces.auth_inspector import inspect_auth_file
 from codex_workspaces.core import WorkspaceManager, strip_workspace_name, validate_workspace_name
 from codex_workspaces.errors import CodexWorkspacesError
@@ -357,6 +357,39 @@ class TestAuthInspector:
 
 
 class TestSystemPlatform:
+    def test_detect_default_app_name_prefers_chatgpt_when_installed(self, tmp_path: Path) -> None:
+        applications = tmp_path / "Applications"
+        applications.mkdir()
+        (applications / "ChatGPT.app").mkdir()
+
+        assert detect_default_app_name({}, applications_dir=applications) == "ChatGPT"
+
+    def test_detect_default_app_name_falls_back_to_codex(self, tmp_path: Path) -> None:
+        applications = tmp_path / "Applications"
+        applications.mkdir()
+        (applications / "Codex.app").mkdir()
+
+        assert detect_default_app_name({}, applications_dir=applications) == "Codex"
+
+    def test_start_app_tries_chatgpt_alias_when_codex_fails(self, monkeypatch) -> None:
+        platform = SystemPlatform(env={})
+        platform.system = "darwin"
+        calls = []
+
+        def fake_run(args, **kwargs):
+            calls.append(args)
+            if args == ["open", "-a", "Codex"]:
+                return subprocess.CompletedProcess(args, 1)
+            if args == ["open", "-a", "ChatGPT"]:
+                return subprocess.CompletedProcess(args, 0)
+            return subprocess.CompletedProcess(args, 0)
+
+        monkeypatch.setattr(platforms_module.subprocess, "run", fake_run)
+
+        platform.start_app("Codex")
+
+        assert calls[:2] == [["open", "-a", "Codex"], ["open", "-a", "ChatGPT"]]
+
     def test_force_stop_waits_short_grace_period_before_killall(self, monkeypatch) -> None:
         platform = StubbornMacPlatform()
         stdout = io.StringIO()
@@ -369,11 +402,13 @@ class TestSystemPlatform:
 
         monkeypatch.setattr(platforms_module.subprocess, "run", fake_run)
         monkeypatch.setattr(platforms_module.time, "sleep", lambda seconds: sleeps.append(seconds))
+        monkeypatch.setattr(platform, "macos_running_app_name", lambda app_name: "ChatGPT")
 
         platform.stop_app("Codex", timeout=20, force=True, stdout=stdout)
 
-        assert ["osascript", "-e", 'tell application "Codex" to quit'] in calls
+        assert ["osascript", "-e", 'tell application "ChatGPT" to quit'] in calls
         assert ["killall", "Codex"] in calls
+        assert ["killall", "ChatGPT"] in calls
         assert sleeps == [1] * (platforms_module.FORCE_QUIT_GRACE_SECONDS + 1)
         assert f"did not exit within {platforms_module.FORCE_QUIT_GRACE_SECONDS}s" in stdout.getvalue()
 

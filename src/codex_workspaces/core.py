@@ -3184,7 +3184,7 @@ def usage(lang: str) -> str:
       显示帮助。
 
 环境变量:
-  CODEX_APP_NAME        App 名称，默认 Codex
+  CODEX_APP_NAME        App 名称，自动检测（优先 ChatGPT，回退 Codex）
   CODEX_QUIT_TIMEOUT    等待 App 退出秒数，默认 20
   CODEX_WORKSPACES_LINK   当前工作区链接，默认 ~/.codex
   CODEX_WORKSPACES_ROOT   管理根目录，默认 ~/.codex-workspaces
@@ -3288,7 +3288,7 @@ Usage:
       Show this help.
 
 Environment variables:
-  CODEX_APP_NAME        App name, default: Codex
+  CODEX_APP_NAME        App name, auto-detects ChatGPT and falls back to Codex
   CODEX_QUIT_TIMEOUT    Seconds to wait for app exit, default: 20
   CODEX_WORKSPACES_LINK   Active workspace link, default: ~/.codex
   CODEX_WORKSPACES_ROOT   Managed root directory, default: ~/.codex-workspaces

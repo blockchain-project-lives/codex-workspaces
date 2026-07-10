@@ -1,11 +1,29 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_NAME="${CODEX_APP_NAME:-Codex}"
 HOME_DIR="${HOME:?HOME is not set}"
 ACTIVE_LINK="${CODEX_WORKSPACES_LINK:-$HOME_DIR/.codex}"
 WORKSPACE_PREFIX="${CODEX_WORKSPACES_PREFIX:-$HOME_DIR/.codex-}"
 QUIT_TIMEOUT="${CODEX_QUIT_TIMEOUT:-20}"
+FORCE_QUIT_GRACE_SECONDS=5
+
+detect_default_app_name() {
+  if [ -n "${CODEX_APP_NAME:-}" ]; then
+    printf '%s\n' "$CODEX_APP_NAME"
+    return 0
+  fi
+  if [ -d "/Applications/ChatGPT.app" ]; then
+    printf 'ChatGPT\n'
+    return 0
+  fi
+  if [ -d "/Applications/Codex.app" ]; then
+    printf 'Codex\n'
+    return 0
+  fi
+  printf 'ChatGPT\n'
+}
+
+APP_NAME="$(detect_default_app_name)"
 
 detect_ui_lang() {
   local forced="${CODEX_WORKSPACES_LANG:-}"
@@ -110,7 +128,7 @@ codex-workspaces - Codex 多工作区切换工具
       显示帮助。
 
 环境变量:
-  CODEX_APP_NAME       App 名称，默认 Codex
+  CODEX_APP_NAME       App 名称，自动检测（优先 ChatGPT，回退 Codex）
   CODEX_QUIT_TIMEOUT   等待 App 退出秒数，默认 20
   CODEX_WORKSPACES_LINK   当前工作区链接，默认 ~/.codex
   CODEX_WORKSPACES_PREFIX 工作区目录前缀，默认 ~/.codex-
@@ -168,7 +186,7 @@ Usage:
       Show this help.
 
 Environment variables:
-  CODEX_APP_NAME       App name, default: Codex
+  CODEX_APP_NAME       App name, auto-detects ChatGPT and falls back to Codex
   CODEX_QUIT_TIMEOUT   Seconds to wait for app exit, default: 20
   CODEX_WORKSPACES_LINK   Active workspace link, default: ~/.codex
   CODEX_WORKSPACES_PREFIX Workspace directory prefix, default: ~/.codex-
@@ -345,7 +363,26 @@ show_current() {
 }
 
 app_running() {
-  pgrep -x "$APP_NAME" >/dev/null 2>&1
+  [ -n "$(app_running_name)" ]
+}
+
+app_name_candidates() {
+  printf '%s\n' "$APP_NAME"
+  case "$APP_NAME" in
+    ChatGPT) printf 'Codex\n' ;;
+    Codex) printf 'ChatGPT\n' ;;
+  esac
+}
+
+app_running_name() {
+  local candidate
+  for candidate in $(app_name_candidates); do
+    if pgrep -x "$candidate" >/dev/null 2>&1; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  return 1
 }
 
 in_codex_terminal() {
@@ -481,8 +518,14 @@ ensure_app_not_running_for_migration() {
   fi
 
   set +e
-  pgrep -x "$APP_NAME" >/dev/null 2>&1
-  status=$?
+  if app_running; then
+    status=0
+  else
+    status=$?
+    if [ "$status" -eq 0 ]; then
+      status=1
+    fi
+  fi
   set -e
   case "$status" in
     0)
@@ -508,6 +551,7 @@ ensure_app_not_running_for_migration() {
 stop_codex() {
   local force="${1:-0}"
   local waited=0
+  local running_name=""
 
   if [ "$force" = "1" ]; then
     delegate_from_codex_terminal "关闭 Codex" "stop Codex" stop --force
@@ -520,10 +564,18 @@ stop_codex() {
     return 0
   fi
 
-  if is_zh; then info "正在关闭 $APP_NAME ..."; else info "Quitting $APP_NAME ..."; fi
-  osascript -e "tell application \"$APP_NAME\" to quit" >/dev/null 2>&1 || true
+  running_name="$(app_running_name || true)"
+  running_name="${running_name:-$APP_NAME}"
 
-  while app_running && [ "$waited" -lt "$QUIT_TIMEOUT" ]; do
+  if is_zh; then info "正在关闭 $running_name ..."; else info "Quitting $running_name ..."; fi
+  osascript -e "tell application \"$running_name\" to quit" >/dev/null 2>&1 || true
+
+  local wait_limit="$QUIT_TIMEOUT"
+  if [ "$force" = "1" ] && [ "$wait_limit" -gt "$FORCE_QUIT_GRACE_SECONDS" ]; then
+    wait_limit="$FORCE_QUIT_GRACE_SECONDS"
+  fi
+
+  while app_running && [ "$waited" -lt "$wait_limit" ]; do
     sleep 1
     waited=$((waited + 1))
   done
@@ -531,11 +583,14 @@ stop_codex() {
   if app_running; then
     if [ "$force" = "1" ]; then
       if is_zh; then
-        info "$APP_NAME 未在 ${QUIT_TIMEOUT}s 内退出，执行强制关闭。"
+        info "$running_name 未在 ${wait_limit}s 内退出，执行强制关闭。"
       else
-        info "$APP_NAME did not exit within ${QUIT_TIMEOUT}s; forcing it to quit."
+        info "$running_name did not exit within ${wait_limit}s; forcing it to quit."
       fi
-      killall "$APP_NAME" >/dev/null 2>&1 || true
+      local candidate
+      for candidate in $(app_name_candidates); do
+        killall "$candidate" >/dev/null 2>&1 || true
+      done
       sleep 1
     else
       if is_zh; then
@@ -546,13 +601,23 @@ stop_codex() {
     fi
   fi
 
-  if is_zh; then info "$APP_NAME 已关闭。"; else info "$APP_NAME has quit."; fi
+  if is_zh; then info "$running_name 已关闭。"; else info "$running_name has quit."; fi
 }
 
 start_codex() {
   require_external_terminal "start"
+  local candidate
   if is_zh; then info "正在启动 $APP_NAME ..."; else info "Starting $APP_NAME ..."; fi
-  open -a "$APP_NAME"
+  for candidate in $(app_name_candidates); do
+    if open -a "$candidate" >/dev/null 2>&1; then
+      return 0
+    fi
+  done
+  if is_zh; then
+    die "无法启动 $APP_NAME。"
+  else
+    die "Could not start $APP_NAME."
+  fi
 }
 
 restart_codex() {

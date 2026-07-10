@@ -7,6 +7,7 @@ from typing import Mapping, Optional
 
 
 RESTORE_POLICIES = {"workspace-default", "last-active", "keep-current"}
+DEFAULT_APP_NAMES = ("ChatGPT", "Codex")
 
 
 def _looks_zh(value: str) -> bool:
@@ -38,6 +39,20 @@ def detect_ui_lang(
 
 def _expand_path(value: str) -> str:
     return os.path.expandvars(os.path.expanduser(value))
+
+
+def detect_default_app_name(
+    env: Mapping[str, str],
+    *,
+    applications_dir: Path = Path("/Applications"),
+) -> str:
+    explicit = env.get("CODEX_APP_NAME")
+    if explicit:
+        return explicit
+    for name in DEFAULT_APP_NAMES:
+        if (applications_dir / f"{name}.app").exists():
+            return name
+    return DEFAULT_APP_NAMES[0]
 
 
 @dataclass(frozen=True)
@@ -97,7 +112,7 @@ class Config:
             restore_policy = "workspace-default"
 
         return cls(
-            app_name=env.get("CODEX_APP_NAME") or "Codex",
+            app_name=detect_default_app_name(env),
             home_dir=home_dir,
             root_dir=root_dir,
             active_link=active_link,

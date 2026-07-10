@@ -24,7 +24,7 @@ For safety, commands that would interrupt the running Codex app are handled care
 
 - macOS.
 - Bash.
-- The Codex desktop app installed as `Codex`.
+- The OpenAI desktop app installed as `ChatGPT` or the older `Codex` name.
 
 If your app name is different, set `CODEX_APP_NAME`.
 
@@ -141,7 +141,7 @@ Switch without stopping Codex first:
 codex-workspaces work --no-stop
 ```
 
-Force quit Codex if it does not exit before the timeout:
+Force quit Codex if it does not exit within 5 seconds:
 
 ```bash
 codex-workspaces work --force
@@ -165,7 +165,7 @@ codex-workspaces help
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `CODEX_APP_NAME` | `Codex` | macOS app name to quit/start. |
+| `CODEX_APP_NAME` | auto-detect (`ChatGPT`, fallback `Codex`) | macOS app name to quit/start. |
 | `CODEX_QUIT_TIMEOUT` | `20` | Seconds to wait for the app to quit. |
 | `CODEX_WORKSPACES_LINK` | `$HOME/.codex` | Active workspace symlink path. |
 | `CODEX_WORKSPACES_PREFIX` | `$HOME/.codex-` | Prefix for workspace directories. |
